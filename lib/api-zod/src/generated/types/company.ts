@@ -5,6 +5,7 @@
  * KL Lead Finder API
  * OpenAPI spec version: 0.1.0
  */
+import type { CompanyGoogleAttributionsItem } from './companyGoogleAttributionsItem';
 import type { CompanySource } from './companySource';
 
 export interface Company {
@@ -29,6 +30,9 @@ export interface Company {
   osmUpdatedAt: Date | null;
   /** @nullable */
   googleUpdatedAt: Date | null;
+  /** @nullable */
+  googleDataWarning?: string | null;
+  googleAttributions?: CompanyGoogleAttributionsItem[];
   ratingAvailable: boolean;
   valueScoreMethod: string;
   valueScoreDetails: string[];

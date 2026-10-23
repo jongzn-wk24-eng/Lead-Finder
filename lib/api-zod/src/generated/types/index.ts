@@ -16,6 +16,7 @@ export * from './checkCheckStatus';
 export * from './checkDesignStatus';
 export * from './company';
 export * from './companyDetail';
+export * from './companyGoogleAttributionsItem';
 export * from './companyInput';
 export * from './companySource';
 export * from './companyUpdate';

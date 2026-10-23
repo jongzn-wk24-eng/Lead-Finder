@@ -228,6 +228,8 @@ for (const [column, definition] of [
   ["website_problem_score", "INTEGER NOT NULL DEFAULT 0"],
 ] as const) addColumnIfMissing("checks", column, definition);
 addColumnIfMissing("searches", "provider", "TEXT NOT NULL DEFAULT 'openstreetmap'");
+addColumnIfMissing("outreach", "finding_type_at_send", "TEXT");
+leadDb.exec("CREATE TABLE IF NOT EXISTS ai_api_usage (requested_at TEXT NOT NULL)");
 
 leadDb.exec(`
   UPDATE checks SET design_status = 'completed'
@@ -240,6 +242,19 @@ leadDb.exec(`
 leadDb.exec(`
   UPDATE companies SET source = 'sample', value_score_method = 'sample legacy score'
   WHERE is_sample_data = 1 AND source = 'manual';
+`);
+
+// Google-returned business fields are never retained. Keep IDs and independently
+// collected website research / user-owned outreach data only.
+leadDb.exec(`
+  UPDATE companies SET
+    name = 'Google Place ' || substr(place_id, -6), address = '',
+    phone = NULL, website_url = NULL, maps_url = NULL, rating = 0,
+    review_count = 0, price_level = NULL, rating_available = 0,
+    value_score = 0, value_score_base = 0, value_score_details_json = '[]',
+    value_score_method = 'Live Google Places estimate (not stored)',
+    opportunity_score = problem_score
+  WHERE source = 'google_places';
 `);
 
 const DEFAULT_SETTINGS = {
@@ -736,10 +751,10 @@ export function listCompanies(filters: CompanyFilters = {}) {
   const conditions: string[] = [];
   const values: SQLInputValue[] = [];
   if (!filters.showAll) {
-    conditions.push("c.value_score >= 15 AND c.problem_score >= 25");
+    conditions.push("(c.source = 'google_places' OR (c.value_score >= 15 AND c.problem_score >= 25))");
   }
   if (filters.search?.trim()) {
-    conditions.push("(LOWER(c.name) LIKE ? OR LOWER(c.area) LIKE ? OR LOWER(c.keyword) LIKE ?)");
+    conditions.push("(c.source = 'google_places' OR LOWER(c.name) LIKE ? OR LOWER(c.area) LIKE ? OR LOWER(c.keyword) LIKE ?)");
     const needle = `%${filters.search.trim().toLowerCase()}%`;
     values.push(needle, needle, needle);
   }
@@ -751,10 +766,10 @@ export function listCompanies(filters: CompanyFilters = {}) {
     conditions.push("c.area = ?");
     values.push(filters.area);
   }
-  if (filters.hasWebsite === true) conditions.push("c.website_url IS NOT NULL");
-  if (filters.hasWebsite === false) conditions.push("c.website_url IS NULL");
-  if (filters.hasContact === true) conditions.push("(c.phone IS NOT NULL OR c.email IS NOT NULL OR c.whatsapp IS NOT NULL)");
-  if (filters.hasContact === false) conditions.push("(c.phone IS NULL AND c.email IS NULL AND c.whatsapp IS NULL)");
+  if (filters.hasWebsite === true) conditions.push("(c.source = 'google_places' OR c.website_url IS NOT NULL)");
+  if (filters.hasWebsite === false) conditions.push("(c.source = 'google_places' OR c.website_url IS NULL)");
+  if (filters.hasContact === true) conditions.push("(c.source = 'google_places' OR c.phone IS NOT NULL OR c.email IS NOT NULL OR c.whatsapp IS NOT NULL)");
+  if (filters.hasContact === false) conditions.push("(c.source = 'google_places' OR (c.phone IS NULL AND c.email IS NULL AND c.whatsapp IS NULL))");
   const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
   const rows = leadDb
     .prepare(
@@ -839,16 +854,8 @@ export function createCompany(input: Record<string, unknown>) {
 
 export type GooglePlaceInput = {
   placeId: string;
-  name: string;
-  address: string;
   area: string;
   keyword: string;
-  phone: string | null;
-  websiteUrl: string | null;
-  mapsUrl: string | null;
-  rating: number | null;
-  reviewCount: number | null;
-  priceLevel: string | null;
 };
 
 export function upsertGooglePlace(input: GooglePlaceInput) {
@@ -857,86 +864,62 @@ export function upsertGooglePlace(input: GooglePlaceInput) {
   const existing = leadDb.prepare("SELECT id FROM companies WHERE place_id = ?").get(placeId) as { id: number } | undefined;
   leadDb.prepare(`
     INSERT INTO companies (
-      place_id, name, address, area, keyword, phone, website_url, maps_url,
-      rating, review_count, price_level, fetched_at, created_at, source,
+      place_id, name, address, area, keyword, fetched_at, created_at, source,
       google_updated_at, rating_available, value_score_method, value_score_base,
       value_score_details_json
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'google_places', ?, ?, 'Google Places rating/review proxy', 0, '[]')
+    ) VALUES (?, ?, '', ?, ?, ?, ?, 'google_places', ?, 0, 'Live Google Places estimate (not stored)', 0, '[]')
     ON CONFLICT(place_id) DO UPDATE SET
-      name = excluded.name,
-      address = excluded.address,
-      area = excluded.area,
-      keyword = excluded.keyword,
-      phone = COALESCE(excluded.phone, companies.phone),
-      website_url = COALESCE(excluded.website_url, companies.website_url),
-      maps_url = COALESCE(excluded.maps_url, companies.maps_url),
-      rating = excluded.rating,
-      review_count = excluded.review_count,
-      price_level = COALESCE(excluded.price_level, companies.price_level),
       fetched_at = excluded.fetched_at,
       google_updated_at = excluded.google_updated_at,
-      rating_available = excluded.rating_available,
-      source = 'google_places',
-      value_score_method = 'Google Places rating/review proxy'
+      source = 'google_places'
   `).run(
     placeId,
-    input.name,
-    input.address,
+    `Google Place ${placeId.slice(-6)}`,
     input.area,
     input.keyword,
-    input.phone,
-    input.websiteUrl,
-    input.mapsUrl,
-    input.rating ?? 0,
-    input.reviewCount ?? 0,
-    input.priceLevel,
     now,
     now,
     now,
-    Number(input.rating != null || input.reviewCount != null),
   );
   const row = leadDb.prepare("SELECT id FROM companies WHERE place_id = ?").get(placeId) as { id: number };
   return { id: Number(row.id), isNew: !existing };
 }
 
-export function recomputeGoogleValueScores() {
-  const rows = leadDb.prepare(`
-    SELECT id, name, keyword, rating, review_count
-    FROM companies WHERE source = 'google_places'
-  `).all() as Array<{ id: number; name: string; keyword: string; rating: number; review_count: number }>;
-  const normalizedName = (name: string) => name.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
-  const branchCounts = new Map<string, number>();
-  for (const row of rows) {
-    const key = normalizedName(row.name);
-    branchCounts.set(key, (branchCounts.get(key) ?? 0) + 1);
-  }
-  const update = leadDb.prepare(`
-    UPDATE companies SET value_score = ?, value_score_base = ?,
-      value_score_details_json = ?, value_score_method = ?,
-      opportunity_score = ? + problem_score, rating_available = ?
-    WHERE id = ?
-  `);
-  for (const row of rows) {
-    const reviewCount = Math.max(0, Number(row.review_count) || 0);
-    const rating = Math.max(0, Number(row.rating) || 0);
-    const categoryText = `${row.keyword} ${row.name}`.toLowerCase();
+export function calculateLiveGoogleValue(input: { keyword: string; rating?: number; reviewCount?: number }) {
+    const reviewCount = Math.max(0, Number(input.reviewCount) || 0);
+    const rating = Math.max(0, Number(input.rating) || 0);
+    const categoryText = input.keyword.toLowerCase();
     const categoryScore = /dental|medical|clinic|law|legal|account|aesthetic|hotel|real estate|property|renovation|interior|school|wedding/.test(categoryText) ? 8 : 0;
     const reviewScore = reviewCount >= 200 ? 12 : reviewCount >= 50 ? 8 : reviewCount >= 20 ? 4 : 0;
     const ratingScore = rating >= 4.2 ? 5 : rating >= 4 ? 3 : 0;
-    const branchScore = (branchCounts.get(normalizedName(row.name)) ?? 0) > 1 ? 5 : 0;
-    const score = Math.min(30, categoryScore + reviewScore + ratingScore + branchScore);
+    const score = Math.min(30, categoryScore + reviewScore + ratingScore);
     const details = [
       ...(categoryScore ? [`Business category match (+${categoryScore})`] : []),
       ...(reviewScore ? [`${reviewCount.toLocaleString()} Google reviews (+${reviewScore})`] : []),
       ...(ratingScore ? [`Google rating ${rating.toFixed(1)} (+${ratingScore})`] : []),
-      ...(branchScore ? [`Multiple listed branches (+${branchScore})`] : []),
-      ...(!rating && !reviewCount ? ["Google Places has no published rating or review count; category/branch estimate only."] : []),
+      ...(!rating && !reviewCount ? ["No published rating or review count; category estimate only."] : []),
     ];
     const method = rating || reviewCount
       ? "Google Places rating/review proxy"
-      : "Google Places category/branch estimate";
-    update.run(score, score, JSON.stringify(details), method, score, Number(rating > 0 || reviewCount > 0), row.id);
-  }
+      : "Google Places category estimate";
+    return { valueScore: score, valueScoreMethod: `${method} (live only)`, valueScoreDetails: details };
+}
+
+export function recordGooglePlacesRequest(keyword: string, area: string) {
+  leadDb.prepare(`
+    INSERT INTO searches (keyword, area, ran_at, api_calls, results_count, provider)
+    VALUES (?, ?, ?, 1, 0, 'google_places')
+  `).run(keyword, area, nowIso());
+}
+
+export function recordGeminiRequest() {
+  leadDb.prepare("INSERT INTO ai_api_usage (requested_at) VALUES (?)").run(nowIso());
+}
+
+export function markGoogleLiveLookup(id: number) {
+  const now = nowIso();
+  leadDb.prepare("UPDATE companies SET google_updated_at = ? WHERE id = ?").run(now, id);
+  return now;
 }
 
 export function deleteSampleData() {
@@ -1156,8 +1139,9 @@ export function listActivity(filters: {
   const conditions: string[] = [];
   const values: SQLInputValue[] = [];
   if (filters.search?.trim()) {
-    conditions.push("LOWER(c.name) LIKE ?");
-    values.push(`%${filters.search.trim().toLowerCase()}%`);
+    conditions.push("(c.source = 'google_places' OR LOWER(c.name) LIKE ? OR LOWER(a.note) LIKE ?)");
+    const needle = `%${filters.search.trim().toLowerCase()}%`;
+    values.push(needle, needle);
   }
   if (filters.action) {
     conditions.push("a.action = ?");
@@ -1199,7 +1183,7 @@ function toCsv(headers: string[], rows: unknown[][]) {
 
 export function exportCompaniesCsv() {
   const rows = leadDb.prepare(`
-    SELECT name, area, keyword, address, phone, website_url AS websiteUrl,
+    SELECT place_id AS placeId, name, area, keyword, address, phone, website_url AS websiteUrl,
       maps_url AS mapsUrl, rating, review_count AS reviewCount, price_level AS priceLevel,
       email, whatsapp, status, value_score AS valueScore,
       problem_score AS problemScore, opportunity_score AS opportunityScore,
@@ -1208,7 +1192,7 @@ export function exportCompaniesCsv() {
     FROM companies ORDER BY opportunity_score DESC, name COLLATE NOCASE ASC
   `).all() as Array<Record<string, unknown>>;
   return toCsv(
-    ["Name", "Area", "Category", "Address", "Phone", "Website", "Maps URL", "Rating", "Review count", "Price level", "Email", "WhatsApp", "Status", "Value score", "Problem score", "Opportunity score", "Finding type", "Top reasons", "Source", "Google updated at", "Fictional sample"],
+    ["Place ID", "Name", "Area", "Category", "Address", "Phone", "Website", "Maps URL", "Rating", "Review count", "Price level", "Email", "WhatsApp", "Status", "Value score", "Problem score", "Opportunity score", "Finding type", "Top reasons", "Source", "Google updated at", "Fictional sample"],
     rows.map((row) => {
       let reasons = "";
       try {
@@ -1217,11 +1201,12 @@ export function exportCompaniesCsv() {
       } catch {
         reasons = "";
       }
+      const google = row.source === "google_places";
       return [
-        row.name, row.area, row.keyword, row.address, row.phone, row.websiteUrl,
-        row.mapsUrl, row.rating, row.reviewCount, row.priceLevel, row.email,
-        row.whatsapp, row.status, row.valueScore, row.problemScore,
-        row.opportunityScore, row.findingType, reasons, row.source,
+        row.placeId, google ? "" : row.name, row.area, row.keyword, google ? "" : row.address, google ? "" : row.phone, google ? "" : row.websiteUrl,
+        google ? "" : row.mapsUrl, google ? "" : row.rating, google ? "" : row.reviewCount, google ? "" : row.priceLevel, row.email,
+        row.whatsapp, row.status, google ? "" : row.valueScore, row.problemScore,
+        google ? "" : row.opportunityScore, row.findingType, reasons, row.source,
         row.googleUpdatedAt, Number(row.isSampleData) === 1 ? "yes" : "no",
       ];
     }),
@@ -1230,16 +1215,16 @@ export function exportCompaniesCsv() {
 
 export function exportOutreachCsv() {
   const rows = leadDb.prepare(`
-    SELECT c.name AS companyName, c.area, o.channel, o.sequence_no AS sequenceNo,
+    SELECT c.place_id AS placeId, c.source, c.name AS companyName, c.area, o.channel, o.sequence_no AS sequenceNo,
       o.subject, o.body, o.sent_at AS sentAt, o.replied_at AS repliedAt,
       o.result, o.next_followup_at AS nextFollowupAt
     FROM outreach o JOIN companies c ON c.id = o.company_id
     ORDER BY COALESCE(o.sent_at, '') DESC, c.name COLLATE NOCASE ASC
   `).all() as Array<Record<string, unknown>>;
   return toCsv(
-    ["Company", "Area", "Channel", "Sequence", "Subject", "Body", "Sent at", "Reply received at", "Result", "Next follow-up at"],
+    ["Place ID", "Company", "Area", "Channel", "Sequence", "Subject", "Body", "Sent at", "Reply received at", "Result", "Next follow-up at"],
     rows.map((row) => [
-      row.companyName, row.area, row.channel, row.sequenceNo, row.subject,
+      row.placeId, row.source === "google_places" ? "" : row.companyName, row.area, row.channel, row.sequenceNo, row.subject,
       row.body, row.sentAt, row.repliedAt, row.result, row.nextFollowupAt,
     ]),
   );
@@ -1306,12 +1291,12 @@ export function getDashboard() {
     malaysiaDate().slice(0, 7),
   );
   const replyRatesByFindingType = leadDb.prepare(`
-    SELECT COALESCE(NULLIF(c.finding_type, ''), 'unclassified') AS findingType,
+    SELECT COALESCE(NULLIF(o.finding_type_at_send, ''), NULLIF(c.finding_type, ''), 'unclassified') AS findingType,
       COUNT(*) AS sent,
       SUM(CASE WHEN o.replied_at IS NOT NULL THEN 1 ELSE 0 END) AS replied
     FROM outreach o JOIN companies c ON c.id = o.company_id
     WHERE o.sent_at IS NOT NULL
-    GROUP BY COALESCE(NULLIF(c.finding_type, ''), 'unclassified')
+    GROUP BY COALESCE(NULLIF(o.finding_type_at_send, ''), NULLIF(c.finding_type, ''), 'unclassified')
     ORDER BY sent DESC, findingType ASC
   `).all() as Array<{ findingType: string; sent: number; replied: number }>;
   const replyRatesByChannel = leadDb.prepare(`
@@ -1346,7 +1331,7 @@ export function getDashboard() {
     byStatus,
     bySequence,
     googlePlacesRequestsCount,
-    aiCallsToday: 0,
+    aiCallsToday: count("SELECT COUNT(*) AS count FROM ai_api_usage WHERE strftime('%Y-%m-%d', requested_at, '+8 hours') = ?", malaysiaDate()),
     replyRatesByFindingType: withRates(replyRatesByFindingType),
     replyRatesByChannel: withRates(replyRatesByChannel),
   };
@@ -1397,9 +1382,11 @@ function validateAiDraft(
   );
 }
 
-export async function generateDraft(id: number) {
+export async function generateDraft(id: number, liveName?: string) {
   const company = getCompany(id);
   if (!company) return { error: "Company not found." } as const;
+  if (company.source === "google_places" && !liveName) return { error: "Load live Google details before drafting." } as const;
+  if (liveName) company.name = liveName;
   if (company.isDoNotContact) return { error: "This company is marked Do not contact." } as const;
   if (!company.findingType || company.reasons.length === 0) {
     return { error: "Need a real finding first." } as const;
@@ -1487,13 +1474,16 @@ WhatsApp: ${settings.myWhatsapp}`;
       senderTitle: String(settings.myTitle ?? ""),
       portfolioUrl: String(settings.portfolioUrl ?? ""),
       whatsappNumber: String(settings.myWhatsapp ?? ""),
-    });
+    }, recordGeminiRequest);
     if (validateAiDraft(aiDraft, company.name, finding)) {
       finalDraft = aiDraft;
       draftMode = "gemini";
     }
   } catch {
     // Keep the plain, fact-based template when Gemini is unavailable.
+  }
+  if (countWords(finalDraft.emailBody) >= 100 || countWords(finalDraft.whatsappBody) >= 100) {
+    return { error: "The finding or sender details are too long for a draft under 100 words. Shorten them and try again." } as const;
   }
   addActivity(
     id,
@@ -1573,10 +1563,10 @@ export function markMessageSent(
   }
   leadDb
     .prepare(
-      `INSERT INTO outreach (company_id, channel, sequence_no, subject, body, sent_at, next_followup_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO outreach (company_id, channel, sequence_no, subject, body, sent_at, next_followup_at, finding_type_at_send)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     )
-    .run(id, input.channel, input.sequenceNo, input.subject ?? null, input.body, now, nextFollowupAt);
+    .run(id, input.channel, input.sequenceNo, input.subject ?? null, input.body, now, nextFollowupAt, company.findingType);
   const nextStatus =
     input.channel === "email"
       ? input.sequenceNo >= 3

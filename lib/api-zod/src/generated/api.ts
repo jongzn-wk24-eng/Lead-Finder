@@ -255,6 +255,11 @@ export const ListCompaniesResponseItem = zod.object({
   "osmId": zod.string().nullable(),
   "osmUpdatedAt": zod.coerce.date().nullable(),
   "googleUpdatedAt": zod.coerce.date().nullable(),
+  "googleDataWarning": zod.string().nullish(),
+  "googleAttributions": zod.array(zod.object({
+  "provider": zod.string().optional(),
+  "providerUri": zod.string().optional()
+})).optional(),
   "ratingAvailable": zod.boolean(),
   "valueScoreMethod": zod.string(),
   "valueScoreDetails": zod.array(zod.string()),
@@ -323,6 +328,11 @@ export const CreateCompanyResponse = zod.object({
   "osmId": zod.string().nullable(),
   "osmUpdatedAt": zod.coerce.date().nullable(),
   "googleUpdatedAt": zod.coerce.date().nullable(),
+  "googleDataWarning": zod.string().nullish(),
+  "googleAttributions": zod.array(zod.object({
+  "provider": zod.string().optional(),
+  "providerUri": zod.string().optional()
+})).optional(),
   "ratingAvailable": zod.boolean(),
   "valueScoreMethod": zod.string(),
   "valueScoreDetails": zod.array(zod.string()),
@@ -382,6 +392,11 @@ export const GetCompanyResponse = zod.object({
   "osmId": zod.string().nullable(),
   "osmUpdatedAt": zod.coerce.date().nullable(),
   "googleUpdatedAt": zod.coerce.date().nullable(),
+  "googleDataWarning": zod.string().nullish(),
+  "googleAttributions": zod.array(zod.object({
+  "provider": zod.string().optional(),
+  "providerUri": zod.string().optional()
+})).optional(),
   "ratingAvailable": zod.boolean(),
   "valueScoreMethod": zod.string(),
   "valueScoreDetails": zod.array(zod.string()),
@@ -483,6 +498,11 @@ export const UpdateCompanyResponse = zod.object({
   "osmId": zod.string().nullable(),
   "osmUpdatedAt": zod.coerce.date().nullable(),
   "googleUpdatedAt": zod.coerce.date().nullable(),
+  "googleDataWarning": zod.string().nullish(),
+  "googleAttributions": zod.array(zod.object({
+  "provider": zod.string().optional(),
+  "providerUri": zod.string().optional()
+})).optional(),
   "ratingAvailable": zod.boolean(),
   "valueScoreMethod": zod.string(),
   "valueScoreDetails": zod.array(zod.string()),
@@ -601,6 +621,11 @@ export const UpdateCompanyStatusResponse = zod.object({
   "osmId": zod.string().nullable(),
   "osmUpdatedAt": zod.coerce.date().nullable(),
   "googleUpdatedAt": zod.coerce.date().nullable(),
+  "googleDataWarning": zod.string().nullish(),
+  "googleAttributions": zod.array(zod.object({
+  "provider": zod.string().optional(),
+  "providerUri": zod.string().optional()
+})).optional(),
   "ratingAvailable": zod.boolean(),
   "valueScoreMethod": zod.string(),
   "valueScoreDetails": zod.array(zod.string()),
@@ -650,6 +675,11 @@ export const MarkDoNotContactResponse = zod.object({
   "osmId": zod.string().nullable(),
   "osmUpdatedAt": zod.coerce.date().nullable(),
   "googleUpdatedAt": zod.coerce.date().nullable(),
+  "googleDataWarning": zod.string().nullish(),
+  "googleAttributions": zod.array(zod.object({
+  "provider": zod.string().optional(),
+  "providerUri": zod.string().optional()
+})).optional(),
   "ratingAvailable": zod.boolean(),
   "valueScoreMethod": zod.string(),
   "valueScoreDetails": zod.array(zod.string()),
@@ -744,6 +774,11 @@ export const MarkMessageSentResponse = zod.object({
   "osmId": zod.string().nullable(),
   "osmUpdatedAt": zod.coerce.date().nullable(),
   "googleUpdatedAt": zod.coerce.date().nullable(),
+  "googleDataWarning": zod.string().nullish(),
+  "googleAttributions": zod.array(zod.object({
+  "provider": zod.string().optional(),
+  "providerUri": zod.string().optional()
+})).optional(),
   "ratingAvailable": zod.boolean(),
   "valueScoreMethod": zod.string(),
   "valueScoreDetails": zod.array(zod.string()),
@@ -797,6 +832,11 @@ export const LogReplyResponse = zod.object({
   "osmId": zod.string().nullable(),
   "osmUpdatedAt": zod.coerce.date().nullable(),
   "googleUpdatedAt": zod.coerce.date().nullable(),
+  "googleDataWarning": zod.string().nullish(),
+  "googleAttributions": zod.array(zod.object({
+  "provider": zod.string().optional(),
+  "providerUri": zod.string().optional()
+})).optional(),
   "ratingAvailable": zod.boolean(),
   "valueScoreMethod": zod.string(),
   "valueScoreDetails": zod.array(zod.string()),

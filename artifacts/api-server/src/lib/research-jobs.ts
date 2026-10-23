@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { getCompany, leadDb, recomputeGoogleValueScores, upsertGooglePlace } from "./lead-db";
+import { getCompany, leadDb, markGoogleLiveLookup, recordGooglePlacesRequest, upsertGooglePlace } from "./lead-db";
 import {
   estimateGooglePlacesRequests,
   fetchGooglePlaceDetails,
@@ -154,13 +154,6 @@ function isCheckStale(companyId: number) {
   return !row.checkedAt || Date.now() - new Date(row.checkedAt).getTime() >= 30 * 24 * 60 * 60 * 1000;
 }
 
-function recordSearch(keyword: string, area: string, resultsCount: number) {
-  leadDb.prepare(`
-    INSERT INTO searches (keyword, area, ran_at, api_calls, results_count, provider)
-    VALUES (?, ?, ?, 1, ?, 'google_places')
-  `).run(keyword, area, new Date().toISOString(), resultsCount);
-}
-
 function failJob(id: string, error: unknown) {
   const message = error instanceof Error ? error.message : "Research job failed.";
   updateResearchJob(id, { status: "failed", phase: "failed", error: message.slice(0, 500), currentLabel: null });
@@ -173,16 +166,8 @@ function listingFromGooglePlace(place: GooglePlace, area: string, keyword: strin
   const placeId = place.id.replace(/^places\//, "");
   return {
     placeId,
-    name,
-    address: place.formattedAddress ?? "",
     area,
     keyword,
-    phone: place.nationalPhoneNumber ?? null,
-    websiteUrl: place.websiteUri ?? null,
-    mapsUrl: place.googleMapsUri ?? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(name)}`,
-    rating: typeof place.rating === "number" ? place.rating : null,
-    reviewCount: typeof place.userRatingCount === "number" ? place.userRatingCount : null,
-    priceLevel: place.priceLevel && place.priceLevel !== "PRICE_LEVEL_UNSPECIFIED" ? place.priceLevel : null,
   };
 }
 
@@ -196,6 +181,7 @@ async function runSearchJob(jobId: string, input: SearchInput) {
       currentLabel: `Searching ${pairs.length} keyword-area pairs`,
     });
     const found = new Set<number>();
+    const livePlaces = new Map<number, GooglePlace>();
     let completedPairs = 0;
     let createdCount = 0;
     let updatedCount = 0;
@@ -208,11 +194,15 @@ async function runSearchJob(jobId: string, input: SearchInput) {
       });
       let places: GooglePlace[] = [];
       try {
-        places = await searchGooglePlacesText(keyword, area, () => incrementRequestCount(jobId));
+        places = await searchGooglePlacesText(keyword, area, () => {
+          incrementRequestCount(jobId);
+          recordGooglePlacesRequest(keyword, area);
+        });
         for (const place of places) {
           const listing = listingFromGooglePlace(place, area, keyword);
           if (!listing) continue;
           const record = upsertGooglePlace(listing);
+          livePlaces.set(record.id, place);
           if (!found.has(record.id)) {
             found.add(record.id);
             if (record.isNew) createdCount += 1;
@@ -222,7 +212,6 @@ async function runSearchJob(jobId: string, input: SearchInput) {
       } catch (error) {
         warnings.push(`${keyword} · ${area}: ${error instanceof Error ? error.message : "Google Places search failed."}`);
       }
-      recordSearch(keyword, area, places.length);
       completedPairs += 1;
       updateResearchJob(jobId, {
         completed: completedPairs,
@@ -236,7 +225,6 @@ async function runSearchJob(jobId: string, input: SearchInput) {
       return;
     }
 
-    recomputeGoogleValueScores();
     const companyIds = [...found];
     const idsToCheck = companyIds.filter(isCheckStale);
     const alreadyChecked = companyIds.length - idsToCheck.length;
@@ -262,7 +250,7 @@ async function runSearchJob(jobId: string, input: SearchInput) {
           continue;
         }
         updateResearchJob(jobId, { currentLabel: `Checking ${company.name}` });
-        const result = await withWebsiteCheckLimit(() => checkCompanyWebsite(companyId));
+        const result = await withWebsiteCheckLimit(() => checkCompanyWebsite(companyId, livePlaces.get(companyId)?.websiteUri ?? null));
         if (result.failed) checksFailed += 1;
         completedChecks += 1;
         updateResearchJob(jobId, {
@@ -294,7 +282,16 @@ async function runRecheckJob(jobId: string, companyId: number) {
     updateResearchJob(jobId, { status: "running", phase: "checking", currentLabel: "Preparing website checks" });
     const company = getCompany(companyId);
     if (!company) throw new Error("Company not found.");
-    const result = await withWebsiteCheckLimit(() => checkCompanyWebsite(companyId));
+    let websiteUrl: string | null | undefined;
+    if (company.source === "google_places") {
+      const place = await fetchGooglePlaceDetails(company.placeId, () => {
+        incrementRequestCount(jobId);
+        recordGooglePlacesRequest("Website re-check live lookup", company.area);
+      });
+      markGoogleLiveLookup(companyId);
+      websiteUrl = place.websiteUri ?? null;
+    }
+    const result = await withWebsiteCheckLimit(() => checkCompanyWebsite(companyId, websiteUrl));
     updateResearchJob(jobId, {
       status: cancellationRequested(jobId) ? "cancelled" : "completed",
       phase: cancellationRequested(jobId) ? "cancelled" : "completed",
@@ -320,10 +317,8 @@ async function runGoogleRefreshJob(jobId: string, companyId: number) {
       requestCounted = true;
       incrementRequestCount(jobId);
     });
-    const listing = listingFromGooglePlace(place, company.area, company.keyword);
-    if (!listing) throw new Error("Google Places returned no active business name for this record.");
-    upsertGooglePlace(listing);
-    recomputeGoogleValueScores();
+    if (!place.id) throw new Error("Google Places returned no place ID.");
+    markGoogleLiveLookup(companyId);
     updateResearchJob(jobId, {
       status: cancellationRequested(jobId) ? "cancelled" : "completed",
       phase: cancellationRequested(jobId) ? "cancelled" : "completed",
@@ -334,7 +329,7 @@ async function runGoogleRefreshJob(jobId: string, companyId: number) {
   } catch (error) {
     failJob(jobId, error);
   } finally {
-    if (requestCounted) recordSearch("Google Places details refresh", area, 0);
+    if (requestCounted) recordGooglePlacesRequest("Google Places details refresh", area);
   }
 }
 
@@ -370,7 +365,7 @@ export function startGooglePlacesSearch(input: SearchInput) {
 }
 
 export function startCompanyRecheck(companyId: number) {
-  const job = createResearchJob("recheck", 1, 0, { companyId });
+  const job = createResearchJob("recheck", 1, getCompany(companyId)?.source === "google_places" ? 1 : 0, { companyId });
   void runRecheckJob(job.id, companyId);
   return job;
 }

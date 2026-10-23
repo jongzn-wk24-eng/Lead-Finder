@@ -545,6 +545,14 @@ components:
         osmId: { type: ["string", "null"] }
         osmUpdatedAt: { type: ["string", "null"], format: date-time }
         googleUpdatedAt: { type: ["string", "null"], format: date-time }
+        googleDataWarning: { type: ["string", "null"] }
+        googleAttributions:
+          type: array
+          items:
+            type: object
+            properties:
+              provider: { type: string }
+              providerUri: { type: string }
         ratingAvailable: { type: boolean }
         valueScoreMethod: { type: string }
         valueScoreDetails: { type: array, items: { type: string } }

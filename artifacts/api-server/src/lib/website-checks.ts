@@ -8,6 +8,7 @@ import { chromium, type Browser } from "playwright-core";
 import {
   getCompany,
   getLatestDesignScreenshotPaths,
+  recordGeminiRequest,
   saveWebsiteCheck,
   updateLatestDesignResult,
   type WebsiteCheckInput,
@@ -507,15 +508,16 @@ async function runWithRetry(companyId: number, websiteUrl: string): Promise<Webs
   };
 }
 
-export async function checkCompanyWebsite(companyId: number): Promise<{ failed: boolean; error: string | null }> {
+export async function checkCompanyWebsite(companyId: number, liveWebsiteUrl?: string | null): Promise<{ failed: boolean; error: string | null }> {
   const company = getCompany(companyId);
   if (!company) return { failed: true, error: "Company not found." };
-  const websiteType = socialOrWebsiteType(company.websiteUrl);
+  const websiteUrl = liveWebsiteUrl === undefined ? company.websiteUrl : liveWebsiteUrl;
+  const websiteType = socialOrWebsiteType(websiteUrl);
   if (websiteType !== "own") {
     saveWebsiteCheck(companyId, problemForMissingWebsite(websiteType));
     return { failed: false, error: null };
   }
-  const result = await runWithRetry(companyId, company.websiteUrl!);
+  const result = await runWithRetry(companyId, websiteUrl!);
   saveWebsiteCheck(companyId, result);
   const screenshots = getLatestDesignScreenshotPaths(companyId);
   if (screenshots) {
@@ -527,7 +529,7 @@ export async function checkCompanyWebsite(companyId: number): Promise<{ failed: 
       });
     } else {
       try {
-        const design = await scoreWebsiteDesign(screenshots.desktopPath, screenshots.mobilePath);
+        const design = await scoreWebsiteDesign(screenshots.desktopPath, screenshots.mobilePath, recordGeminiRequest);
         updateLatestDesignResult({
           companyId,
           status: "completed",

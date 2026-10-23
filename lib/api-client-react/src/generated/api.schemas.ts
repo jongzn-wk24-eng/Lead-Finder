@@ -33,6 +33,11 @@ export const CompanySource = {
   sample: 'sample',
 } as const;
 
+export type CompanyGoogleAttributionsItem = {
+  provider?: string;
+  providerUri?: string;
+};
+
 export interface Company {
   id: number;
   placeId: string;
@@ -55,6 +60,9 @@ export interface Company {
   osmUpdatedAt: string | null;
   /** @nullable */
   googleUpdatedAt: string | null;
+  /** @nullable */
+  googleDataWarning?: string | null;
+  googleAttributions?: CompanyGoogleAttributionsItem[];
   ratingAvailable: boolean;
   valueScoreMethod: string;
   valueScoreDetails: string[];

@@ -1,0 +1,1 @@
+- [Google Places retention](google-places-retention.md) — Google business fields are live-only; retain Place IDs and independent user/research records, not API content.

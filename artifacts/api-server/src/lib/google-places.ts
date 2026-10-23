@@ -15,6 +15,7 @@ const FIELD_MASK = [
   "places.primaryType",
   "places.types",
   "places.businessStatus",
+  "places.attributions",
 ].join(",");
 const DETAILS_FIELD_MASK = FIELD_MASK.split(",").map((field) => field.replace(/^places\./, "")).join(",");
 
@@ -31,6 +32,7 @@ export type GooglePlace = {
   primaryType?: string;
   types?: string[];
   businessStatus?: string;
+  attributions?: Array<{ provider?: string; providerUri?: string }>;
 };
 
 type PlacesResponse = { places?: GooglePlace[] };
@@ -52,7 +54,7 @@ export function estimateGooglePlacesRequests(areas: string[], keywords: string[]
     requestsEstimated: pairCount,
     maxResultsPerPair: MAX_RESULTS_PER_PAIR,
     maximumPairs: MAX_GOOGLE_SEARCH_PAIRS,
-    strategy: "One Google Places Text Search request per unique keyword-area pair.",
+    strategy: "One Text Search per pair. Displaying saved Google leads also uses live Place Details calls; those are not included here.",
   };
 }
 
@@ -73,11 +75,12 @@ function apiKey() {
 }
 
 async function placesRequest(url: string, init: RequestInit, fieldMask: string, onRequest: () => void) {
+  const key = apiKey();
   onRequest();
   const response = await fetch(url, {
     ...init,
     headers: {
-      "X-Goog-Api-Key": apiKey(),
+      "X-Goog-Api-Key": key,
       "X-Goog-FieldMask": fieldMask,
       "Content-Type": "application/json",
       ...init.headers,

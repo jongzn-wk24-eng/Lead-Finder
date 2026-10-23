@@ -38,6 +38,7 @@ import {
   COMPANY_STATUSES,
 } from "../lib/lead-db";
 import { authState, login, logout, requireLeadAuth } from "../lib/lead-auth";
+import { withLiveCompanyNames, withLiveGoogleData, withLiveGoogleList } from "../lib/live-google";
 import {
   cancelResearchJob,
   estimateGooglePlacesSearch,
@@ -81,6 +82,10 @@ router.post("/auth/logout", (_req, res) => {
 });
 
 router.use(requireLeadAuth);
+router.use((_req, res, next) => {
+  res.setHeader("Cache-Control", "private, no-store");
+  next();
+});
 
 router.post("/search/estimate", (req, res) => {
   const body = EstimateSearchBody.safeParse(req.body);
@@ -144,13 +149,23 @@ router.get("/dashboard", (_req, res) => {
   res.json(getDashboard());
 });
 
-router.get("/companies", (req, res) => {
+router.get("/companies", async (req, res): Promise<void> => {
   const query = ListCompaniesQueryParams.safeParse(req.query);
   if (!query.success) {
     res.status(400).json({ error: "Invalid lead filters." });
     return;
   }
-  res.json(listCompanies(query.data));
+  const filter = query.data;
+  const live = await withLiveGoogleList(listCompanies(filter));
+  const results = live.filter((company) => {
+    if (company.googleDataWarning) return true;
+    if (!filter.showAll && (company.valueScore < 15 || company.problemScore < 25)) return false;
+    if (filter.search && !`${company.name} ${company.area} ${company.keyword}`.toLowerCase().includes(filter.search.toLowerCase().trim())) return false;
+    if (filter.hasWebsite != null && Boolean(company.websiteUrl) !== filter.hasWebsite) return false;
+    if (filter.hasContact != null && Boolean(company.phone || company.email || company.whatsapp) !== filter.hasContact) return false;
+    return true;
+  }).sort((a, b) => b.opportunityScore - a.opportunityScore || a.name.localeCompare(b.name));
+  res.json(results);
 });
 
 router.post("/companies", (req, res) => {
@@ -176,7 +191,7 @@ router.get("/export.csv", (req, res) => {
   res.send(csv);
 });
 
-router.get("/companies/:companyId", (req, res) => {
+router.get("/companies/:companyId", async (req, res): Promise<void> => {
   const params = GetCompanyParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: "Invalid company id." });
@@ -187,7 +202,8 @@ router.get("/companies/:companyId", (req, res) => {
     res.status(404).json({ error: "Company not found." });
     return;
   }
-  res.json(company);
+  const live = await withLiveGoogleData(company);
+  res.json({ ...live, activity: company.activity.map((item) => ({ ...item, companyName: live.name })) });
 });
 
 router.get("/companies/:companyId/screenshots/:variant", async (req, res): Promise<void> => {
@@ -244,12 +260,16 @@ router.post("/companies/:companyId/refresh-google", (req, res) => {
     res.status(404).json({ error: "Company not found." });
     return;
   }
-  const job = startGoogleRefresh(id);
-  if (!job) {
-    res.status(409).json({ error: "Only Google Places businesses can be refreshed." });
-    return;
+  try {
+    const job = startGoogleRefresh(id);
+    if (!job) {
+      res.status(409).json({ error: "Only Google Places businesses can be refreshed." });
+      return;
+    }
+    res.status(202).json(job);
+  } catch (error) {
+    res.status(503).json({ error: error instanceof Error ? error.message : "Google Places refresh is unavailable." });
   }
-  res.status(202).json(job);
 });
 
 router.patch("/companies/:companyId", (req, res) => {
@@ -307,7 +327,17 @@ router.post("/companies/:companyId/draft", async (req, res): Promise<void> => {
     res.status(400).json({ error: "Invalid company id." });
     return;
   }
-  const result = await generateDraft(id);
+  const company = getCompany(id);
+  if (!company) {
+    res.status(404).json({ error: "Company not found." });
+    return;
+  }
+  const live = await withLiveGoogleData(company);
+  if (live.googleDataWarning) {
+    res.status(503).json({ error: "Live Google details are unavailable. Try again before drafting." });
+    return;
+  }
+  const result = await generateDraft(id, company.source === "google_places" ? live.name : undefined);
   if ("error" in result) {
     res.status(result.error === "Company not found." ? 404 : 409).json({ error: result.error });
     return;
@@ -368,22 +398,22 @@ router.post("/companies/:companyId/reply", (req, res) => {
   res.json(company);
 });
 
-router.get("/activity", (req, res) => {
+router.get("/activity", async (req, res): Promise<void> => {
   const query = ListActivityQueryParams.safeParse(req.query);
   if (!query.success) {
     res.status(400).json({ error: "Invalid activity filters." });
     return;
   }
-  res.json(
-    listActivity({
+  const rows = await withLiveCompanyNames(listActivity({
       ...query.data,
       date: query.data.date?.toISOString().slice(0, 10),
-    }),
-  );
+    }));
+  const search = query.data.search?.toLowerCase().trim();
+  res.json(search ? rows.filter((row) => `${row.companyName} ${row.note}`.toLowerCase().includes(search)) : rows);
 });
 
-router.get("/followups", (_req, res) => {
-  res.json(listFollowups());
+router.get("/followups", async (_req, res): Promise<void> => {
+  res.json(await withLiveCompanyNames(listFollowups()));
 });
 
 router.get("/settings", (_req, res) => {
