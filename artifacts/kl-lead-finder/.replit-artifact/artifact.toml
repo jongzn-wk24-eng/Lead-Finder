@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "KL Lead Finder"
+description = "A private lead research and manual outreach tracker for a freelance web designer in Kuala Lumpur. Phase 1 includes a dashboard, sample businesses, lead and activity management, settings, and message drafts, with all outreach initiated manually."
+version = "1.0.0"
+id = "artifacts/kl-lead-finder"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 21379
+
+[services.development]
+run = "pnpm --filter @workspace/kl-lead-finder run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/kl-lead-finder", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/kl-lead-finder/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "21379"
+BASE_PATH = "/"

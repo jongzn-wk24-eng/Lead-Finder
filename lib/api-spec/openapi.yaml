@@ -3,13 +3,21 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: KL Lead Finder API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: auth
+    description: Password-gate session
+  - name: leads
+    description: Lead and outreach management
+  - name: activity
+    description: Activity history
+  - name: settings
+    description: App settings
 paths:
   /healthz:
     get:
@@ -24,6 +32,326 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /auth/session:
+    get:
+      operationId: getAuthSession
+      tags: [auth]
+      summary: Check whether the password gate is configured and signed in
+      responses:
+        "200":
+          description: Session state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthSession"
+  /auth/login:
+    post:
+      operationId: login
+      tags: [auth]
+      summary: Sign in with the configured app password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AuthInput"
+      responses:
+        "200":
+          description: Signed in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthSession"
+        "401":
+          description: Incorrect password
+        "503":
+          description: Password secret is not configured
+  /auth/logout:
+    post:
+      operationId: logout
+      tags: [auth]
+      summary: Sign out
+      responses:
+        "200":
+          description: Signed out
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OkResult"
+  /dashboard:
+    get:
+      operationId: getDashboard
+      tags: [leads]
+      summary: Read dashboard totals, quota, and due follow-ups
+      responses:
+        "200":
+          description: Dashboard summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Dashboard"
+  /companies:
+    get:
+      operationId: listCompanies
+      tags: [leads]
+      summary: List and filter companies
+      parameters:
+        - in: query
+          name: search
+          schema: { type: string }
+        - in: query
+          name: status
+          schema: { type: string }
+        - in: query
+          name: area
+          schema: { type: string }
+        - in: query
+          name: hasWebsite
+          schema: { type: boolean }
+        - in: query
+          name: hasContact
+          schema: { type: boolean }
+        - in: query
+          name: showAll
+          schema: { type: boolean, default: false }
+      responses:
+        "200":
+          description: Matching companies
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Company" }
+    post:
+      operationId: createCompany
+      tags: [leads]
+      summary: Add a company manually
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CompanyInput" }
+      responses:
+        "201":
+          description: Company created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Company" }
+  /companies/{companyId}:
+    parameters:
+      - in: path
+        name: companyId
+        required: true
+        schema: { type: integer }
+    get:
+      operationId: getCompany
+      tags: [leads]
+      summary: Get company details
+      responses:
+        "200":
+          description: Company detail
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompanyDetail" }
+        "404": { description: Company not found }
+    patch:
+      operationId: updateCompany
+      tags: [leads]
+      summary: Update editable company details
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CompanyUpdate" }
+      responses:
+        "200":
+          description: Updated company
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Company" }
+  /companies/{companyId}/status:
+    post:
+      operationId: updateCompanyStatus
+      tags: [leads]
+      summary: Change a company's outreach status
+      parameters:
+        - in: path
+          name: companyId
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/StatusInput" }
+      responses:
+        "200":
+          description: Updated company
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Company" }
+  /companies/{companyId}/do-not-contact:
+    post:
+      operationId: markDoNotContact
+      tags: [leads]
+      summary: Permanently block outreach to a company
+      parameters:
+        - in: path
+          name: companyId
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Company marked Do not contact
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Company" }
+  /companies/{companyId}/draft:
+    post:
+      operationId: generateMessageDraft
+      tags: [leads]
+      summary: Generate a manual email and WhatsApp draft
+      parameters:
+        - in: path
+          name: companyId
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Draft text
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MessageDraft" }
+        "409": { description: A real finding is required before drafting }
+  /companies/{companyId}/copy-log:
+    post:
+      operationId: logCopiedMessage
+      tags: [leads]
+      summary: Record that a draft was copied
+      parameters:
+        - in: path
+          name: companyId
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ChannelInput" }
+      responses:
+        "200":
+          description: Activity recorded
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OkResult" }
+  /companies/{companyId}/sent:
+    post:
+      operationId: markMessageSent
+      tags: [leads]
+      summary: Record a manually sent message and schedule follow-up
+      parameters:
+        - in: path
+          name: companyId
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SentInput" }
+      responses:
+        "200":
+          description: Outreach recorded
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Company" }
+        "409": { description: Send limit or sequence limit reached }
+  /companies/{companyId}/reply:
+    post:
+      operationId: logReply
+      tags: [leads]
+      summary: Record a reply
+      parameters:
+        - in: path
+          name: companyId
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ReplyInput" }
+      responses:
+        "200":
+          description: Reply recorded
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Company" }
+  /activity:
+    get:
+      operationId: listActivity
+      tags: [activity]
+      summary: List activity entries
+      parameters:
+        - in: query
+          name: search
+          schema: { type: string }
+        - in: query
+          name: action
+          schema: { type: string }
+        - in: query
+          name: channel
+          schema: { type: string }
+        - in: query
+          name: date
+          schema: { type: string, format: date }
+      responses:
+        "200":
+          description: Activity history
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ActivityItem" }
+  /followups:
+    get:
+      operationId: listFollowups
+      tags: [activity]
+      summary: List due and overdue follow-ups
+      responses:
+        "200":
+          description: Follow-up queue
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Followup" }
+  /settings:
+    get:
+      operationId: getSettings
+      tags: [settings]
+      summary: Read settings
+      responses:
+        "200":
+          description: Current settings
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Settings" }
+    patch:
+      operationId: updateSettings
+      tags: [settings]
+      summary: Update settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SettingsUpdate" }
+      responses:
+        "200":
+          description: Updated settings
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Settings" }
 components:
   schemas:
     HealthStatus:
@@ -33,4 +361,254 @@ components:
           type: string
       required:
         - status
+    OkResult:
+      type: object
+      properties:
+        ok: { type: boolean }
+      required: [ok]
+    AuthSession:
+      type: object
+      properties:
+        configured: { type: boolean }
+        authenticated: { type: boolean }
+      required: [configured, authenticated]
+    AuthInput:
+      type: object
+      properties:
+        password: { type: string, minLength: 1 }
+      required: [password]
+    Company:
+      type: object
+      properties:
+        id: { type: integer }
+        placeId: { type: string }
+        name: { type: string }
+        address: { type: string }
+        area: { type: string }
+        keyword: { type: string }
+        phone: { type: ["string", "null"] }
+        websiteUrl: { type: ["string", "null"] }
+        mapsUrl: { type: ["string", "null"] }
+        rating: { type: number }
+        reviewCount: { type: integer }
+        priceLevel: { type: ["string", "null"] }
+        email: { type: ["string", "null"] }
+        whatsapp: { type: ["string", "null"] }
+        firstName: { type: string }
+        status: { type: string }
+        valueScore: { type: integer }
+        problemScore: { type: integer }
+        opportunityScore: { type: integer }
+        reasons:
+          type: array
+          items: { type: string }
+        findingType: { type: ["string", "null"] }
+        notes: { type: string }
+        fetchedAt: { type: string, format: date-time }
+        createdAt: { type: string, format: date-time }
+        lastContactedAt: { type: ["string", "null"], format: date-time }
+        nextFollowupAt: { type: ["string", "null"], format: date-time }
+        emailCount: { type: integer }
+        whatsappCount: { type: integer }
+        isDoNotContact: { type: boolean }
+        isSampleData: { type: boolean }
+      required: [id, placeId, name, address, area, keyword, rating, reviewCount, firstName, status, valueScore, problemScore, opportunityScore, reasons, notes, fetchedAt, createdAt, emailCount, whatsappCount, isDoNotContact, isSampleData]
+    CompanyDetail:
+      allOf:
+        - $ref: "#/components/schemas/Company"
+        - type: object
+          properties:
+            checks:
+              type: array
+              items: { $ref: "#/components/schemas/Check" }
+            activity:
+              type: array
+              items: { $ref: "#/components/schemas/ActivityItem" }
+            outreach:
+              type: array
+              items: { $ref: "#/components/schemas/Outreach" }
+    Check:
+      type: object
+      properties:
+        checkedAt: { type: string, format: date-time }
+        websiteType: { type: string }
+        psiMobileScore: { type: ["integer", "null"] }
+        lcpSeconds: { type: ["number", "null"] }
+        https: { type: ["boolean", "null"] }
+        hasViewport: { type: ["boolean", "null"] }
+        copyrightYear: { type: ["integer", "null"] }
+        hasTelLink: { type: ["boolean", "null"] }
+        hasWhatsappLink: { type: ["boolean", "null"] }
+        hasContactForm: { type: ["boolean", "null"] }
+        siteBuilder: { type: ["string", "null"] }
+        designScore: { type: ["integer", "null"] }
+        designReason: { type: ["string", "null"] }
+        ctaObvious: { type: ["boolean", "null"] }
+      required: [checkedAt, websiteType]
+    ActivityItem:
+      type: object
+      properties:
+        id: { type: integer }
+        companyId: { type: integer }
+        companyName: { type: string }
+        timestamp: { type: string, format: date-time }
+        action: { type: string }
+        channel: { type: ["string", "null"] }
+        sequenceNo: { type: ["integer", "null"] }
+        note: { type: string }
+      required: [id, companyId, companyName, timestamp, action, note]
+    Outreach:
+      type: object
+      properties:
+        id: { type: integer }
+        channel: { type: string }
+        sequenceNo: { type: integer }
+        subject: { type: ["string", "null"] }
+        body: { type: string }
+        sentAt: { type: ["string", "null"], format: date-time }
+        repliedAt: { type: ["string", "null"], format: date-time }
+        result: { type: ["string", "null"] }
+        nextFollowupAt: { type: ["string", "null"], format: date-time }
+      required: [id, channel, sequenceNo, body]
+    Followup:
+      type: object
+      properties:
+        companyId: { type: integer }
+        companyName: { type: string }
+        area: { type: string }
+        sequenceNo: { type: integer }
+        channel: { type: string }
+        dueAt: { type: string, format: date-time }
+        status: { type: string }
+      required: [companyId, companyName, area, sequenceNo, channel, dueAt, status]
+    Dashboard:
+      type: object
+      properties:
+        totals:
+          type: object
+          properties:
+            companies: { type: integer }
+            contacted: { type: integer }
+            replies: { type: integer }
+            replyRate: { type: number }
+            wantsHero: { type: integer }
+            heroSent: { type: integer }
+            won: { type: integer }
+            whatsappSent: { type: integer }
+          required: [companies, contacted, replies, replyRate, wantsHero, heroSent, won, whatsappSent]
+        sentToday:
+          type: object
+          properties:
+            email: { type: integer }
+            whatsapp: { type: integer }
+          required: [email, whatsapp]
+        limits:
+          type: object
+          properties:
+            email: { type: integer }
+            whatsapp: { type: integer }
+          required: [email, whatsapp]
+        byStatus:
+          type: array
+          items:
+            type: object
+            properties:
+              status: { type: string }
+              count: { type: integer }
+            required: [status, count]
+        bySequence:
+          type: array
+          items:
+            type: object
+            properties:
+              sequenceNo: { type: integer }
+              count: { type: integer }
+            required: [sequenceNo, count]
+        placesSearchCount: { type: integer }
+        aiCallsToday: { type: integer }
+      required: [totals, sentToday, limits, byStatus, bySequence, placesSearchCount, aiCallsToday]
+    MessageDraft:
+      type: object
+      properties:
+        subject: { type: string }
+        emailBody: { type: string }
+        whatsappBody: { type: string }
+        finding: { type: string }
+        canOpenWhatsapp: { type: boolean }
+      required: [subject, emailBody, whatsappBody, finding, canOpenWhatsapp]
+    CompanyInput:
+      type: object
+      properties:
+        name: { type: string, minLength: 1 }
+        area: { type: string, minLength: 1 }
+        keyword: { type: string }
+        address: { type: string }
+        phone: { type: ["string", "null"] }
+        websiteUrl: { type: ["string", "null"] }
+        rating: { type: number, minimum: 0, maximum: 5 }
+        reviewCount: { type: integer, minimum: 0 }
+        findingType: { type: ["string", "null"] }
+        reasons:
+          type: array
+          items: { type: string }
+      required: [name, area, keyword, address, rating, reviewCount]
+    CompanyUpdate:
+      type: object
+      properties:
+        firstName: { type: string }
+        email: { type: ["string", "null"] }
+        whatsapp: { type: ["string", "null"] }
+        notes: { type: string }
+    StatusInput:
+      type: object
+      properties:
+        status: { type: string }
+      required: [status]
+    ChannelInput:
+      type: object
+      properties:
+        channel: { type: string, enum: [email, whatsapp] }
+      required: [channel]
+    SentInput:
+      type: object
+      properties:
+        channel: { type: string, enum: [email, whatsapp] }
+        sequenceNo: { type: integer, minimum: 1, maximum: 3 }
+        subject: { type: string }
+        body: { type: string, minLength: 1 }
+      required: [channel, sequenceNo, body]
+    ReplyInput:
+      type: object
+      properties:
+        note: { type: string }
+      required: [note]
+    Settings:
+      type: object
+      properties:
+        areas: { type: array, items: { type: string } }
+        keywords: { type: array, items: { type: string } }
+        emailDailyLimit: { type: integer }
+        whatsappDailyLimit: { type: integer }
+        followup1Days: { type: integer }
+        followup2Days: { type: integer }
+        myName: { type: string }
+        myTitle: { type: string }
+        myWhatsapp: { type: string }
+        portfolioUrl: { type: string }
+        aiInstruction: { type: string }
+      required: [areas, keywords, emailDailyLimit, whatsappDailyLimit, followup1Days, followup2Days, myName, myTitle, myWhatsapp, portfolioUrl, aiInstruction]
+    SettingsUpdate:
+      type: object
+      properties:
+        areas: { type: array, items: { type: string } }
+        keywords: { type: array, items: { type: string } }
+        emailDailyLimit: { type: integer, minimum: 1, maximum: 100 }
+        whatsappDailyLimit: { type: integer, minimum: 1, maximum: 100 }
+        followup1Days: { type: integer, minimum: 1, maximum: 60 }
+        followup2Days: { type: integer, minimum: 1, maximum: 90 }
+        myName: { type: string }
+        myTitle: { type: string }
+        myWhatsapp: { type: string }
+        portfolioUrl: { type: string }
+        aiInstruction: { type: string }
 

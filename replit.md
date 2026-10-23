@@ -1,6 +1,6 @@
-# [Project name]
+# KL Lead Finder
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+A private, single-user lead research and manual outreach tracker for a freelance web designer working with Kuala Lumpur businesses.
 
 ## Run & Operate
 
@@ -26,11 +26,14 @@ _Populate as you build — short repo map plus pointers to the source-of-truth f
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- Lead Finder data is stored in a local SQLite file through one database module so the storage layer can be replaced later.
+- The password gate uses `APP_PASSWORD` and `SESSION_SECRET`; protected routes fail closed when either is missing.
+- Phase 1 uses clearly identified synthetic sample businesses and does not call third-party APIs.
+- No app flow sends email or WhatsApp. Message actions only draft, copy, open a prefilled link, and record a send the user confirms manually.
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+KL Lead Finder helps one freelance web designer identify promising local businesses, record verified website findings, prepare outreach drafts, and track manually handled follow-ups. The first phase includes a dashboard, sample leads, activity history, settings, and template-based drafts.
 
 ## User preferences
 
@@ -38,7 +41,9 @@ _Populate as you build — explicit user instructions worth remembering across s
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
+- Do not add any automatic email or WhatsApp sending.
+- Never expose leads unless both `APP_PASSWORD` and `SESSION_SECRET` are configured.
+- Do not present seeded sample businesses or their outreach history as real research or real messages.
 
 ## Pointers
 
