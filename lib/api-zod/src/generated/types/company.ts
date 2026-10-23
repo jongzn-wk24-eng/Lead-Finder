@@ -27,6 +27,8 @@ export interface Company {
   osmId: string | null;
   /** @nullable */
   osmUpdatedAt: Date | null;
+  /** @nullable */
+  googleUpdatedAt: Date | null;
   ratingAvailable: boolean;
   valueScoreMethod: string;
   valueScoreDetails: string[];

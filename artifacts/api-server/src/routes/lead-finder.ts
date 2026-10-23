@@ -18,6 +18,8 @@ import {
   addActivity,
   createCompany,
   deleteSampleData,
+  exportCompaniesCsv,
+  exportOutreachCsv,
   generateDraft,
   getCompanyScreenshotPath,
   getCompany,
@@ -36,13 +38,13 @@ import {
   COMPANY_STATUSES,
 } from "../lib/lead-db";
 import { authState, login, logout, requireLeadAuth } from "../lib/lead-auth";
-import { estimateOsmRequests } from "../lib/openstreetmap";
 import {
   cancelResearchJob,
+  estimateGooglePlacesSearch,
   getResearchJob,
   startCompanyRecheck,
-  startOsmRefresh,
-  startOsmSearch,
+  startGoogleRefresh,
+  startGooglePlacesSearch,
 } from "../lib/research-jobs";
 import { getPrivateScreenshot } from "../lib/screenshot-storage";
 
@@ -87,9 +89,9 @@ router.post("/search/estimate", (req, res) => {
     return;
   }
   try {
-    res.json(estimateOsmRequests(body.data.areas, body.data.keywords));
+    res.json(estimateGooglePlacesSearch(body.data));
   } catch (error) {
-    res.status(400).json({ error: error instanceof Error ? error.message : "Could not estimate OpenStreetMap requests." });
+    res.status(400).json({ error: error instanceof Error ? error.message : "Could not estimate Google Places requests." });
   }
 });
 
@@ -100,9 +102,9 @@ router.post("/search/jobs", (req, res) => {
     return;
   }
   try {
-    res.status(202).json(startOsmSearch(body.data));
+    res.status(202).json(startGooglePlacesSearch(body.data));
   } catch (error) {
-    res.status(400).json({ error: error instanceof Error ? error.message : "Could not start OpenStreetMap search." });
+    res.status(400).json({ error: error instanceof Error ? error.message : "Could not start Google Places search." });
   }
 });
 
@@ -159,6 +161,19 @@ router.post("/companies", (req, res) => {
   }
   const company = createCompany(body.data);
   res.status(201).json(company);
+});
+
+router.get("/export.csv", (req, res) => {
+  const type = req.query.type;
+  if (type !== "companies" && type !== "outreach") {
+    res.status(400).json({ error: "Choose companies or outreach for the CSV export." });
+    return;
+  }
+  const date = new Date().toISOString().slice(0, 10);
+  const csv = type === "companies" ? exportCompaniesCsv() : exportOutreachCsv();
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", `attachment; filename="kl-lead-${type}-${date}.csv"`);
+  res.send(csv);
 });
 
 router.get("/companies/:companyId", (req, res) => {
@@ -218,7 +233,7 @@ router.post("/companies/:companyId/recheck", (req, res) => {
   res.status(202).json(startCompanyRecheck(id));
 });
 
-router.post("/companies/:companyId/refresh-osm", (req, res) => {
+router.post("/companies/:companyId/refresh-google", (req, res) => {
   const id = parseCompanyId(req.params.companyId);
   if (!id) {
     res.status(400).json({ error: "Invalid company id." });
@@ -229,9 +244,9 @@ router.post("/companies/:companyId/refresh-osm", (req, res) => {
     res.status(404).json({ error: "Company not found." });
     return;
   }
-  const job = startOsmRefresh(id);
+  const job = startGoogleRefresh(id);
   if (!job) {
-    res.status(409).json({ error: "Only OpenStreetMap businesses can be refreshed from OSM." });
+    res.status(409).json({ error: "Only Google Places businesses can be refreshed." });
     return;
   }
   res.status(202).json(job);
@@ -286,13 +301,13 @@ router.post("/companies/:companyId/do-not-contact", (req, res) => {
   res.json(company);
 });
 
-router.post("/companies/:companyId/draft", (req, res) => {
+router.post("/companies/:companyId/draft", async (req, res): Promise<void> => {
   const id = parseCompanyId(req.params.companyId);
   if (!id) {
     res.status(400).json({ error: "Invalid company id." });
     return;
   }
-  const result = generateDraft(id);
+  const result = await generateDraft(id);
   if ("error" in result) {
     res.status(result.error === "Company not found." ? 404 : 409).json({ error: result.error });
     return;

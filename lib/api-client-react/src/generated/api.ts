@@ -29,6 +29,7 @@ import type {
   CompanyInput,
   CompanyUpdate,
   Dashboard,
+  ExportLeadDataCsvParams,
   Followup,
   HealthStatus,
   ListActivityParams,
@@ -476,7 +477,7 @@ export const getEstimateSearchUrl = () => {
 }
 
 /**
- * @summary Estimate uncached OpenStreetMap requests for selected areas
+ * @summary Estimate Google Places Text Search requests for selected areas and categories
  */
 export const estimateSearch = async (searchInput: SearchInput, options?: Parameters<typeof customFetch>[1]): Promise<SearchEstimate> => {
 
@@ -542,7 +543,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type EstimateSearchMutationVariables = {data: BodyType<SearchInput>}
 
     /**
- * @summary Estimate uncached OpenStreetMap requests for selected areas
+ * @summary Estimate Google Places Text Search requests for selected areas and categories
  */
 export const useEstimateSearch = <TError = ErrorType<unknown>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof estimateSearch>>, TError,EstimateSearchMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
@@ -564,7 +565,7 @@ export const getStartSearchJobUrl = () => {
 }
 
 /**
- * @summary Start an OpenStreetMap search and website-check job
+ * @summary Start a Google Places search and website-check job
  */
 export const startSearchJob = async (searchInput: SearchInput, options?: Parameters<typeof customFetch>[1]): Promise<ResearchJob> => {
 
@@ -630,7 +631,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type StartSearchJobMutationVariables = {data: BodyType<SearchInput>}
 
     /**
- * @summary Start an OpenStreetMap search and website-check job
+ * @summary Start a Google Places search and website-check job
  */
 export const useStartSearchJob = <TError = ErrorType<unknown>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof startSearchJob>>, TError,StartSearchJobMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
@@ -1040,6 +1041,90 @@ export const useCreateCompany = <TError = ErrorType<unknown>,
       return useMutation(getCreateCompanyMutationOptions(options));
     }
 
+export const getExportLeadDataCsvUrl = (params: ExportLeadDataCsvParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/export.csv?${stringifiedParams}` : `/api/export.csv`
+}
+
+/**
+ * @summary Download companies or outreach as CSV
+ */
+export const exportLeadDataCsv = async (params: ExportLeadDataCsvParams, options?: Parameters<typeof customFetch>[1]): Promise<string> => {
+
+  return customFetch<string>(getExportLeadDataCsvUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getExportLeadDataCsvQueryKey = (params?: ExportLeadDataCsvParams,) => {
+    return [
+    `/api/export.csv`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getExportLeadDataCsvQueryOptions = <TData = Awaited<ReturnType<typeof exportLeadDataCsv>>, TError = ErrorType<unknown>>(params: ExportLeadDataCsvParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof exportLeadDataCsv>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getExportLeadDataCsvQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof exportLeadDataCsv>>> = ({ signal }) => exportLeadDataCsv(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof exportLeadDataCsv>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ExportLeadDataCsvQueryResult = NonNullable<Awaited<ReturnType<typeof exportLeadDataCsv>>>
+export type ExportLeadDataCsvQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Download companies or outreach as CSV
+ */
+
+export function useExportLeadDataCsv<TData = Awaited<ReturnType<typeof exportLeadDataCsv>>, TError = ErrorType<unknown>>(
+ params: ExportLeadDataCsvParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof exportLeadDataCsv>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getExportLeadDataCsvQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
 export const getGetCompanyUrl = (companyId: number,) => {
 
 
@@ -1280,20 +1365,20 @@ export const useRecheckCompany = <TError = ErrorType<void>,
       return useMutation(getRecheckCompanyMutationOptions(options));
     }
 
-export const getRefreshOsmCompanyUrl = (companyId: number,) => {
+export const getRefreshGoogleCompanyUrl = (companyId: number,) => {
 
 
 
 
-  return `/api/companies/${companyId}/refresh-osm`
+  return `/api/companies/${companyId}/refresh-google`
 }
 
 /**
- * @summary Refresh a stale company record from OpenStreetMap
+ * @summary Refresh a stale company record from Google Places
  */
-export const refreshOsmCompany = async (companyId: number, options?: Parameters<typeof customFetch>[1]): Promise<ResearchJob> => {
+export const refreshGoogleCompany = async (companyId: number, options?: Parameters<typeof customFetch>[1]): Promise<ResearchJob> => {
 
-  return customFetch<ResearchJob>(getRefreshOsmCompanyUrl(companyId),
+  return customFetch<ResearchJob>(getRefreshGoogleCompanyUrl(companyId),
   {
     ...options,
     method: 'POST'
@@ -1306,13 +1391,13 @@ export const refreshOsmCompany = async (companyId: number, options?: Parameters<
 
 
 
-export const getRefreshOsmCompanyMutationKey = () => ['refreshOsmCompany'] as const;
+export const getRefreshGoogleCompanyMutationKey = () => ['refreshGoogleCompany'] as const;
 
-export const getRefreshOsmCompanyMutationOptions = <TError = ErrorType<void>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof refreshOsmCompany>>, TError,RefreshOsmCompanyMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof refreshOsmCompany>>, TError,RefreshOsmCompanyMutationVariables, TContext> => {
+export const getRefreshGoogleCompanyMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof refreshGoogleCompany>>, TError,RefreshGoogleCompanyMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof refreshGoogleCompany>>, TError,RefreshGoogleCompanyMutationVariables, TContext> => {
 
-const mutationKey = getRefreshOsmCompanyMutationKey();
+const mutationKey = getRefreshGoogleCompanyMutationKey();
 const {mutation: mutationOptions, request: requestOptions} = options ?
       options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
       options
@@ -1322,10 +1407,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof refreshOsmCompany>>, RefreshOsmCompanyMutationVariables> = (props) => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof refreshGoogleCompany>>, RefreshGoogleCompanyMutationVariables> = (props) => {
           const {companyId} = props ?? {};
 
-          return  refreshOsmCompany(companyId,requestOptions)
+          return  refreshGoogleCompany(companyId,requestOptions)
         }
 
 
@@ -1335,23 +1420,23 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
   return  { mutationFn, ...mutationOptions }}
 
-    export type RefreshOsmCompanyMutationResult = NonNullable<Awaited<ReturnType<typeof refreshOsmCompany>>>
+    export type RefreshGoogleCompanyMutationResult = NonNullable<Awaited<ReturnType<typeof refreshGoogleCompany>>>
 
-    export type RefreshOsmCompanyMutationError = ErrorType<void>
-    export type RefreshOsmCompanyMutationVariables = {companyId: number}
+    export type RefreshGoogleCompanyMutationError = ErrorType<void>
+    export type RefreshGoogleCompanyMutationVariables = {companyId: number}
 
     /**
- * @summary Refresh a stale company record from OpenStreetMap
+ * @summary Refresh a stale company record from Google Places
  */
-export const useRefreshOsmCompany = <TError = ErrorType<void>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof refreshOsmCompany>>, TError,RefreshOsmCompanyMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+export const useRefreshGoogleCompany = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof refreshGoogleCompany>>, TError,RefreshGoogleCompanyMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
-        Awaited<ReturnType<typeof refreshOsmCompany>>,
+        Awaited<ReturnType<typeof refreshGoogleCompany>>,
         TError,
-        RefreshOsmCompanyMutationVariables,
+        RefreshGoogleCompanyMutationVariables,
         TContext
       > => {
-      return useMutation(getRefreshOsmCompanyMutationOptions(options));
+      return useMutation(getRefreshGoogleCompanyMutationOptions(options));
     }
 
 export const getGetCompanyScreenshotUrl = (companyId: number,

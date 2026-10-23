@@ -9,10 +9,9 @@
 export interface SearchEstimate {
   areaCount: number;
   keywordCount: number;
-  geocodingCalls: number;
-  cachedAreas: string[];
-  overpassCalls: number;
-  totalCalls: number;
+  pairCount: number;
+  requestsEstimated: number;
+  maxResultsPerPair: number;
+  maximumPairs: number;
   strategy: string;
-  maxListingsPerArea: number;
 }

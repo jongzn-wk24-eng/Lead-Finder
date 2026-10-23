@@ -27,6 +27,7 @@ export type CompanySource = typeof CompanySource[keyof typeof CompanySource];
 
 
 export const CompanySource = {
+  google_places: 'google_places',
   openstreetmap: 'openstreetmap',
   manual: 'manual',
   sample: 'sample',
@@ -52,6 +53,8 @@ export interface Company {
   osmId: string | null;
   /** @nullable */
   osmUpdatedAt: string | null;
+  /** @nullable */
+  googleUpdatedAt: string | null;
   ratingAvailable: boolean;
   valueScoreMethod: string;
   valueScoreDetails: string[];
@@ -83,6 +86,16 @@ export interface Company {
   isDoNotContact: boolean;
   isSampleData: boolean;
 }
+
+export type CheckDesignStatus = typeof CheckDesignStatus[keyof typeof CheckDesignStatus];
+
+
+export const CheckDesignStatus = {
+  pending: 'pending',
+  completed: 'completed',
+  failed: 'failed',
+  unavailable: 'unavailable',
+} as const;
 
 export type CheckCheckStatus = typeof CheckCheckStatus[keyof typeof CheckCheckStatus];
 
@@ -120,6 +133,7 @@ export interface Check {
   designScore?: number | null;
   /** @nullable */
   designReason?: string | null;
+  designStatus?: CheckDesignStatus;
   /** @nullable */
   ctaObvious?: boolean | null;
   retryCount?: number;
@@ -188,12 +202,11 @@ export interface SearchInput {
 export interface SearchEstimate {
   areaCount: number;
   keywordCount: number;
-  geocodingCalls: number;
-  cachedAreas: string[];
-  overpassCalls: number;
-  totalCalls: number;
+  pairCount: number;
+  requestsEstimated: number;
+  maxResultsPerPair: number;
+  maximumPairs: number;
   strategy: string;
-  maxListingsPerArea: number;
 }
 
 export type ResearchJobKind = typeof ResearchJobKind[keyof typeof ResearchJobKind];
@@ -202,7 +215,7 @@ export type ResearchJobKind = typeof ResearchJobKind[keyof typeof ResearchJobKin
 export const ResearchJobKind = {
   search: 'search',
   recheck: 'recheck',
-  osm_refresh: 'osm_refresh',
+  google_refresh: 'google_refresh',
 } as const;
 
 export type ResearchJobStatus = typeof ResearchJobStatus[keyof typeof ResearchJobStatus];
@@ -282,15 +295,39 @@ export type DashboardBySequenceItem = {
   count: number;
 };
 
+export type DashboardReplyRatesByFindingTypeItem = {
+  findingType: string;
+  sent: number;
+  replied: number;
+  replyRate: number;
+};
+
+export type DashboardReplyRatesByChannelItem = {
+  channel: string;
+  sent: number;
+  replied: number;
+  replyRate: number;
+};
+
 export interface Dashboard {
   totals: DashboardTotals;
   sentToday: DashboardSentToday;
   limits: DashboardLimits;
   byStatus: DashboardByStatusItem[];
   bySequence: DashboardBySequenceItem[];
-  osmRequestsCount: number;
+  googlePlacesRequestsCount: number;
   aiCallsToday: number;
+  replyRatesByFindingType: DashboardReplyRatesByFindingTypeItem[];
+  replyRatesByChannel: DashboardReplyRatesByChannelItem[];
 }
+
+export type MessageDraftDraftMode = typeof MessageDraftDraftMode[keyof typeof MessageDraftDraftMode];
+
+
+export const MessageDraftDraftMode = {
+  gemini: 'gemini',
+  template: 'template',
+} as const;
 
 export interface MessageDraft {
   subject: string;
@@ -298,6 +335,7 @@ export interface MessageDraft {
   whatsappBody: string;
   finding: string;
   canOpenWhatsapp: boolean;
+  draftMode: MessageDraftDraftMode;
 }
 
 export interface CompanyInput {
@@ -424,6 +462,18 @@ hasWebsite?: boolean;
 hasContact?: boolean;
 showAll?: boolean;
 };
+
+export type ExportLeadDataCsvParams = {
+type: ExportLeadDataCsvType;
+};
+
+export type ExportLeadDataCsvType = typeof ExportLeadDataCsvType[keyof typeof ExportLeadDataCsvType];
+
+
+export const ExportLeadDataCsvType = {
+  companies: 'companies',
+  outreach: 'outreach',
+} as const;
 
 export type ListActivityParams = {
 search?: string;

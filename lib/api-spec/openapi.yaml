@@ -96,7 +96,7 @@ paths:
     post:
       operationId: estimateSearch
       tags: [search]
-      summary: Estimate uncached OpenStreetMap requests for selected areas
+      summary: Estimate Google Places Text Search requests for selected areas and categories
       requestBody:
         required: true
         content:
@@ -112,7 +112,7 @@ paths:
     post:
       operationId: startSearchJob
       tags: [search]
-      summary: Start an OpenStreetMap search and website-check job
+      summary: Start a Google Places search and website-check job
       requestBody:
         required: true
         content:
@@ -216,6 +216,22 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Company" }
+  /export.csv:
+    get:
+      operationId: exportLeadDataCsv
+      tags: [leads]
+      summary: Download companies or outreach as CSV
+      parameters:
+        - in: query
+          name: type
+          required: true
+          schema: { type: string, enum: [companies, outreach] }
+      responses:
+        "200":
+          description: CSV export
+          content:
+            text/csv:
+              schema: { type: string }
   /companies/{companyId}:
     parameters:
       - in: path
@@ -265,11 +281,11 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ResearchJob" }
         "404": { description: Company not found }
-  /companies/{companyId}/refresh-osm:
+  /companies/{companyId}/refresh-google:
     post:
-      operationId: refreshOsmCompany
+      operationId: refreshGoogleCompany
       tags: [search]
-      summary: Refresh a stale company record from OpenStreetMap
+      summary: Refresh a stale company record from Google Places
       parameters:
         - in: path
           name: companyId
@@ -277,12 +293,12 @@ paths:
           schema: { type: integer }
       responses:
         "202":
-          description: OpenStreetMap refresh queued
+          description: Google Places refresh queued
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ResearchJob" }
         "404": { description: Company not found }
-        "409": { description: Company is not an OpenStreetMap record }
+        "409": { description: Company is not a Google Places record }
   /companies/{companyId}/screenshots/{variant}:
     get:
       operationId: getCompanyScreenshot
@@ -524,10 +540,11 @@ components:
         phone: { type: ["string", "null"] }
         websiteUrl: { type: ["string", "null"] }
         mapsUrl: { type: ["string", "null"] }
-        source: { type: string, enum: [openstreetmap, manual, sample] }
+        source: { type: string, enum: [google_places, openstreetmap, manual, sample] }
         osmType: { type: ["string", "null"] }
         osmId: { type: ["string", "null"] }
         osmUpdatedAt: { type: ["string", "null"], format: date-time }
+        googleUpdatedAt: { type: ["string", "null"], format: date-time }
         ratingAvailable: { type: boolean }
         valueScoreMethod: { type: string }
         valueScoreDetails: { type: array, items: { type: string } }
@@ -554,7 +571,7 @@ components:
         whatsappCount: { type: integer }
         isDoNotContact: { type: boolean }
         isSampleData: { type: boolean }
-      required: [id, placeId, name, address, area, keyword, rating, reviewCount, firstName, status, valueScore, problemScore, opportunityScore, reasons, notes, fetchedAt, createdAt, emailCount, whatsappCount, isDoNotContact, isSampleData, source, osmType, osmId, osmUpdatedAt, ratingAvailable, valueScoreMethod, valueScoreDetails]
+      required: [id, placeId, name, address, area, keyword, rating, reviewCount, firstName, status, valueScore, problemScore, opportunityScore, reasons, notes, fetchedAt, createdAt, emailCount, whatsappCount, isDoNotContact, isSampleData, source, osmType, osmId, osmUpdatedAt, googleUpdatedAt, ratingAvailable, valueScoreMethod, valueScoreDetails]
     CompanyDetail:
       allOf:
         - $ref: "#/components/schemas/Company"
@@ -586,6 +603,7 @@ components:
         siteBuilder: { type: ["string", "null"] }
         designScore: { type: ["integer", "null"] }
         designReason: { type: ["string", "null"] }
+        designStatus: { type: string, enum: [pending, completed, failed, unavailable] }
         ctaObvious: { type: ["boolean", "null"] }
         retryCount: { type: integer }
         checkStatus: { type: string, enum: [completed, failed, skipped] }
@@ -612,18 +630,17 @@ components:
       properties:
         areaCount: { type: integer }
         keywordCount: { type: integer }
-        geocodingCalls: { type: integer }
-        cachedAreas: { type: array, items: { type: string } }
-        overpassCalls: { type: integer }
-        totalCalls: { type: integer }
+        pairCount: { type: integer }
+        requestsEstimated: { type: integer }
+        maxResultsPerPair: { type: integer }
+        maximumPairs: { type: integer }
         strategy: { type: string }
-        maxListingsPerArea: { type: integer }
-      required: [areaCount, keywordCount, geocodingCalls, cachedAreas, overpassCalls, totalCalls, strategy, maxListingsPerArea]
+      required: [areaCount, keywordCount, pairCount, requestsEstimated, maxResultsPerPair, maximumPairs, strategy]
     ResearchJob:
       type: object
       properties:
         id: { type: string }
-        kind: { type: string, enum: [search, recheck, osm_refresh] }
+        kind: { type: string, enum: [search, recheck, google_refresh] }
         status: { type: string, enum: [queued, running, completed, cancelled, failed] }
         phase: { type: string }
         total: { type: integer }
@@ -723,9 +740,29 @@ components:
               sequenceNo: { type: integer }
               count: { type: integer }
             required: [sequenceNo, count]
-        osmRequestsCount: { type: integer }
+        googlePlacesRequestsCount: { type: integer }
         aiCallsToday: { type: integer }
-      required: [totals, sentToday, limits, byStatus, bySequence, osmRequestsCount, aiCallsToday]
+        replyRatesByFindingType:
+          type: array
+          items:
+            type: object
+            properties:
+              findingType: { type: string }
+              sent: { type: integer }
+              replied: { type: integer }
+              replyRate: { type: number }
+            required: [findingType, sent, replied, replyRate]
+        replyRatesByChannel:
+          type: array
+          items:
+            type: object
+            properties:
+              channel: { type: string }
+              sent: { type: integer }
+              replied: { type: integer }
+              replyRate: { type: number }
+            required: [channel, sent, replied, replyRate]
+      required: [totals, sentToday, limits, byStatus, bySequence, googlePlacesRequestsCount, aiCallsToday, replyRatesByFindingType, replyRatesByChannel]
     MessageDraft:
       type: object
       properties:
@@ -734,7 +771,8 @@ components:
         whatsappBody: { type: string }
         finding: { type: string }
         canOpenWhatsapp: { type: boolean }
-      required: [subject, emailBody, whatsappBody, finding, canOpenWhatsapp]
+        draftMode: { type: string, enum: [gemini, template] }
+      required: [subject, emailBody, whatsappBody, finding, canOpenWhatsapp, draftMode]
     CompanyInput:
       type: object
       properties:

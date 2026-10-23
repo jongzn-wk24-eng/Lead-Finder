@@ -8,6 +8,8 @@
 import type { DashboardBySequenceItem } from './dashboardBySequenceItem';
 import type { DashboardByStatusItem } from './dashboardByStatusItem';
 import type { DashboardLimits } from './dashboardLimits';
+import type { DashboardReplyRatesByChannelItem } from './dashboardReplyRatesByChannelItem';
+import type { DashboardReplyRatesByFindingTypeItem } from './dashboardReplyRatesByFindingTypeItem';
 import type { DashboardSentToday } from './dashboardSentToday';
 import type { DashboardTotals } from './dashboardTotals';
 
@@ -17,6 +19,8 @@ export interface Dashboard {
   limits: DashboardLimits;
   byStatus: DashboardByStatusItem[];
   bySequence: DashboardBySequenceItem[];
-  osmRequestsCount: number;
+  googlePlacesRequestsCount: number;
   aiCallsToday: number;
+  replyRatesByFindingType: DashboardReplyRatesByFindingTypeItem[];
+  replyRatesByChannel: DashboardReplyRatesByChannelItem[];
 }

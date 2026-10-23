@@ -80,13 +80,25 @@ export const GetDashboardResponse = zod.object({
   "sequenceNo": zod.number().int(),
   "count": zod.number().int()
 })),
-  "osmRequestsCount": zod.number().int(),
-  "aiCallsToday": zod.number().int()
+  "googlePlacesRequestsCount": zod.number().int(),
+  "aiCallsToday": zod.number().int(),
+  "replyRatesByFindingType": zod.array(zod.object({
+  "findingType": zod.string(),
+  "sent": zod.number().int(),
+  "replied": zod.number().int(),
+  "replyRate": zod.number()
+})),
+  "replyRatesByChannel": zod.array(zod.object({
+  "channel": zod.string(),
+  "sent": zod.number().int(),
+  "replied": zod.number().int(),
+  "replyRate": zod.number()
+}))
 })
 
 
 /**
- * @summary Estimate uncached OpenStreetMap requests for selected areas
+ * @summary Estimate Google Places Text Search requests for selected areas and categories
  */
 export const estimateSearchBodyAreasItemMax = 100;
 
@@ -106,17 +118,16 @@ export const EstimateSearchBody = zod.object({
 export const EstimateSearchResponse = zod.object({
   "areaCount": zod.number().int(),
   "keywordCount": zod.number().int(),
-  "geocodingCalls": zod.number().int(),
-  "cachedAreas": zod.array(zod.string()),
-  "overpassCalls": zod.number().int(),
-  "totalCalls": zod.number().int(),
-  "strategy": zod.string(),
-  "maxListingsPerArea": zod.number().int()
+  "pairCount": zod.number().int(),
+  "requestsEstimated": zod.number().int(),
+  "maxResultsPerPair": zod.number().int(),
+  "maximumPairs": zod.number().int(),
+  "strategy": zod.string()
 })
 
 
 /**
- * @summary Start an OpenStreetMap search and website-check job
+ * @summary Start a Google Places search and website-check job
  */
 export const startSearchJobBodyAreasItemMax = 100;
 
@@ -135,7 +146,7 @@ export const StartSearchJobBody = zod.object({
 
 export const StartSearchJobResponse = zod.object({
   "id": zod.string(),
-  "kind": zod.enum(['search', 'recheck', 'osm_refresh']),
+  "kind": zod.enum(['search', 'recheck', 'google_refresh']),
   "status": zod.enum(['queued', 'running', 'completed', 'cancelled', 'failed']),
   "phase": zod.string(),
   "total": zod.number().int(),
@@ -162,7 +173,7 @@ export const GetSearchJobParams = zod.object({
 
 export const GetSearchJobResponse = zod.object({
   "id": zod.string(),
-  "kind": zod.enum(['search', 'recheck', 'osm_refresh']),
+  "kind": zod.enum(['search', 'recheck', 'google_refresh']),
   "status": zod.enum(['queued', 'running', 'completed', 'cancelled', 'failed']),
   "phase": zod.string(),
   "total": zod.number().int(),
@@ -189,7 +200,7 @@ export const CancelSearchJobParams = zod.object({
 
 export const CancelSearchJobResponse = zod.object({
   "id": zod.string(),
-  "kind": zod.enum(['search', 'recheck', 'osm_refresh']),
+  "kind": zod.enum(['search', 'recheck', 'google_refresh']),
   "status": zod.enum(['queued', 'running', 'completed', 'cancelled', 'failed']),
   "phase": zod.string(),
   "total": zod.number().int(),
@@ -239,10 +250,11 @@ export const ListCompaniesResponseItem = zod.object({
   "phone": zod.string().nullish(),
   "websiteUrl": zod.string().nullish(),
   "mapsUrl": zod.string().nullish(),
-  "source": zod.enum(['openstreetmap', 'manual', 'sample']),
+  "source": zod.enum(['google_places', 'openstreetmap', 'manual', 'sample']),
   "osmType": zod.string().nullable(),
   "osmId": zod.string().nullable(),
   "osmUpdatedAt": zod.coerce.date().nullable(),
+  "googleUpdatedAt": zod.coerce.date().nullable(),
   "ratingAvailable": zod.boolean(),
   "valueScoreMethod": zod.string(),
   "valueScoreDetails": zod.array(zod.string()),
@@ -306,10 +318,11 @@ export const CreateCompanyResponse = zod.object({
   "phone": zod.string().nullish(),
   "websiteUrl": zod.string().nullish(),
   "mapsUrl": zod.string().nullish(),
-  "source": zod.enum(['openstreetmap', 'manual', 'sample']),
+  "source": zod.enum(['google_places', 'openstreetmap', 'manual', 'sample']),
   "osmType": zod.string().nullable(),
   "osmId": zod.string().nullable(),
   "osmUpdatedAt": zod.coerce.date().nullable(),
+  "googleUpdatedAt": zod.coerce.date().nullable(),
   "ratingAvailable": zod.boolean(),
   "valueScoreMethod": zod.string(),
   "valueScoreDetails": zod.array(zod.string()),
@@ -338,6 +351,16 @@ export const CreateCompanyResponse = zod.object({
 
 
 /**
+ * @summary Download companies or outreach as CSV
+ */
+export const ExportLeadDataCsvQueryParams = zod.object({
+  "type": zod.enum(['companies', 'outreach'])
+})
+
+export const ExportLeadDataCsvResponse = zod.unknown()
+
+
+/**
  * @summary Get company details
  */
 export const GetCompanyParams = zod.object({
@@ -354,10 +377,11 @@ export const GetCompanyResponse = zod.object({
   "phone": zod.string().nullish(),
   "websiteUrl": zod.string().nullish(),
   "mapsUrl": zod.string().nullish(),
-  "source": zod.enum(['openstreetmap', 'manual', 'sample']),
+  "source": zod.enum(['google_places', 'openstreetmap', 'manual', 'sample']),
   "osmType": zod.string().nullable(),
   "osmId": zod.string().nullable(),
   "osmUpdatedAt": zod.coerce.date().nullable(),
+  "googleUpdatedAt": zod.coerce.date().nullable(),
   "ratingAvailable": zod.boolean(),
   "valueScoreMethod": zod.string(),
   "valueScoreDetails": zod.array(zod.string()),
@@ -398,6 +422,7 @@ export const GetCompanyResponse = zod.object({
   "siteBuilder": zod.string().nullish(),
   "designScore": zod.number().int().nullish(),
   "designReason": zod.string().nullish(),
+  "designStatus": zod.enum(['pending', 'completed', 'failed', 'unavailable']).optional(),
   "ctaObvious": zod.boolean().nullish(),
   "retryCount": zod.number().int().optional(),
   "checkStatus": zod.enum(['completed', 'failed', 'skipped']).optional(),
@@ -453,10 +478,11 @@ export const UpdateCompanyResponse = zod.object({
   "phone": zod.string().nullish(),
   "websiteUrl": zod.string().nullish(),
   "mapsUrl": zod.string().nullish(),
-  "source": zod.enum(['openstreetmap', 'manual', 'sample']),
+  "source": zod.enum(['google_places', 'openstreetmap', 'manual', 'sample']),
   "osmType": zod.string().nullable(),
   "osmId": zod.string().nullable(),
   "osmUpdatedAt": zod.coerce.date().nullable(),
+  "googleUpdatedAt": zod.coerce.date().nullable(),
   "ratingAvailable": zod.boolean(),
   "valueScoreMethod": zod.string(),
   "valueScoreDetails": zod.array(zod.string()),
@@ -493,7 +519,7 @@ export const RecheckCompanyParams = zod.object({
 
 export const RecheckCompanyResponse = zod.object({
   "id": zod.string(),
-  "kind": zod.enum(['search', 'recheck', 'osm_refresh']),
+  "kind": zod.enum(['search', 'recheck', 'google_refresh']),
   "status": zod.enum(['queued', 'running', 'completed', 'cancelled', 'failed']),
   "phase": zod.string(),
   "total": zod.number().int(),
@@ -512,15 +538,15 @@ export const RecheckCompanyResponse = zod.object({
 
 
 /**
- * @summary Refresh a stale company record from OpenStreetMap
+ * @summary Refresh a stale company record from Google Places
  */
-export const RefreshOsmCompanyParams = zod.object({
+export const RefreshGoogleCompanyParams = zod.object({
   "companyId": zod.coerce.number().int()
 })
 
-export const RefreshOsmCompanyResponse = zod.object({
+export const RefreshGoogleCompanyResponse = zod.object({
   "id": zod.string(),
-  "kind": zod.enum(['search', 'recheck', 'osm_refresh']),
+  "kind": zod.enum(['search', 'recheck', 'google_refresh']),
   "status": zod.enum(['queued', 'running', 'completed', 'cancelled', 'failed']),
   "phase": zod.string(),
   "total": zod.number().int(),
@@ -570,10 +596,11 @@ export const UpdateCompanyStatusResponse = zod.object({
   "phone": zod.string().nullish(),
   "websiteUrl": zod.string().nullish(),
   "mapsUrl": zod.string().nullish(),
-  "source": zod.enum(['openstreetmap', 'manual', 'sample']),
+  "source": zod.enum(['google_places', 'openstreetmap', 'manual', 'sample']),
   "osmType": zod.string().nullable(),
   "osmId": zod.string().nullable(),
   "osmUpdatedAt": zod.coerce.date().nullable(),
+  "googleUpdatedAt": zod.coerce.date().nullable(),
   "ratingAvailable": zod.boolean(),
   "valueScoreMethod": zod.string(),
   "valueScoreDetails": zod.array(zod.string()),
@@ -618,10 +645,11 @@ export const MarkDoNotContactResponse = zod.object({
   "phone": zod.string().nullish(),
   "websiteUrl": zod.string().nullish(),
   "mapsUrl": zod.string().nullish(),
-  "source": zod.enum(['openstreetmap', 'manual', 'sample']),
+  "source": zod.enum(['google_places', 'openstreetmap', 'manual', 'sample']),
   "osmType": zod.string().nullable(),
   "osmId": zod.string().nullable(),
   "osmUpdatedAt": zod.coerce.date().nullable(),
+  "googleUpdatedAt": zod.coerce.date().nullable(),
   "ratingAvailable": zod.boolean(),
   "valueScoreMethod": zod.string(),
   "valueScoreDetails": zod.array(zod.string()),
@@ -661,7 +689,8 @@ export const GenerateMessageDraftResponse = zod.object({
   "emailBody": zod.string(),
   "whatsappBody": zod.string(),
   "finding": zod.string(),
-  "canOpenWhatsapp": zod.boolean()
+  "canOpenWhatsapp": zod.boolean(),
+  "draftMode": zod.enum(['gemini', 'template'])
 })
 
 
@@ -710,10 +739,11 @@ export const MarkMessageSentResponse = zod.object({
   "phone": zod.string().nullish(),
   "websiteUrl": zod.string().nullish(),
   "mapsUrl": zod.string().nullish(),
-  "source": zod.enum(['openstreetmap', 'manual', 'sample']),
+  "source": zod.enum(['google_places', 'openstreetmap', 'manual', 'sample']),
   "osmType": zod.string().nullable(),
   "osmId": zod.string().nullable(),
   "osmUpdatedAt": zod.coerce.date().nullable(),
+  "googleUpdatedAt": zod.coerce.date().nullable(),
   "ratingAvailable": zod.boolean(),
   "valueScoreMethod": zod.string(),
   "valueScoreDetails": zod.array(zod.string()),
@@ -762,10 +792,11 @@ export const LogReplyResponse = zod.object({
   "phone": zod.string().nullish(),
   "websiteUrl": zod.string().nullish(),
   "mapsUrl": zod.string().nullish(),
-  "source": zod.enum(['openstreetmap', 'manual', 'sample']),
+  "source": zod.enum(['google_places', 'openstreetmap', 'manual', 'sample']),
   "osmType": zod.string().nullable(),
   "osmId": zod.string().nullable(),
   "osmUpdatedAt": zod.coerce.date().nullable(),
+  "googleUpdatedAt": zod.coerce.date().nullable(),
   "ratingAvailable": zod.boolean(),
   "valueScoreMethod": zod.string(),
   "valueScoreDetails": zod.array(zod.string()),

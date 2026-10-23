@@ -12,5 +12,5 @@ export type ResearchJobKind = typeof ResearchJobKind[keyof typeof ResearchJobKin
 export const ResearchJobKind = {
   search: 'search',
   recheck: 'recheck',
-  osm_refresh: 'osm_refresh',
+  google_refresh: 'google_refresh',
 } as const;

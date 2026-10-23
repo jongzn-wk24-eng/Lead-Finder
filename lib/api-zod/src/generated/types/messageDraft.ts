@@ -5,6 +5,7 @@
  * KL Lead Finder API
  * OpenAPI spec version: 0.1.0
  */
+import type { MessageDraftDraftMode } from './messageDraftDraftMode';
 
 export interface MessageDraft {
   subject: string;
@@ -12,4 +13,5 @@ export interface MessageDraft {
   whatsappBody: string;
   finding: string;
   canOpenWhatsapp: boolean;
+  draftMode: MessageDraftDraftMode;
 }

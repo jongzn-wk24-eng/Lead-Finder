@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { CheckCheckStatus } from './checkCheckStatus';
+import type { CheckDesignStatus } from './checkDesignStatus';
 
 export interface Check {
   checkedAt: Date;
@@ -34,6 +35,7 @@ export interface Check {
   designScore?: number | null;
   /** @nullable */
   designReason?: string | null;
+  designStatus?: CheckDesignStatus;
   /** @nullable */
   ctaObvious?: boolean | null;
   retryCount?: number;

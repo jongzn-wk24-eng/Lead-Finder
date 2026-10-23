@@ -5,7 +5,14 @@ import type { IncomingHttpHeaders, RequestOptions } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { isIP } from "node:net";
 import { chromium, type Browser } from "playwright-core";
-import { getCompany, saveWebsiteCheck, type WebsiteCheckInput } from "./lead-db";
+import {
+  getCompany,
+  getLatestDesignScreenshotPaths,
+  saveWebsiteCheck,
+  updateLatestDesignResult,
+  type WebsiteCheckInput,
+} from "./lead-db";
+import { GeminiQuotaError, scoreWebsiteDesign } from "./gemini-ai";
 import { logger } from "./logger";
 import { storeWebsiteScreenshot } from "./screenshot-storage";
 
@@ -394,7 +401,7 @@ function problemForMissingWebsite(websiteType: "social" | "none"): WebsiteCheckI
     screenshotDesktopPath: null,
     screenshotMobilePath: null,
     problemScore: 50,
-    reasons: [websiteType === "social" ? "Only a social page was listed in OpenStreetMap." : "No website was listed in OpenStreetMap."],
+    reasons: [websiteType === "social" ? "Only a social page was listed for this business." : "No website was listed for this business."],
     findingType: "no_website",
     email: null,
     whatsapp: null,
@@ -438,9 +445,7 @@ async function runOneCheck(companyId: number, websiteUrl: string, retryCount: nu
   const computed = scoreWebsite(homepage.url, signals, contactSignals, psi);
   const reasons = [...computed.reasons];
   const score = computed.problemScore;
-  if (screenshotError) {
-    logger.debug({ companyId }, "Screenshot capture was skipped; design scoring remains unavailable in Phase 2");
-  }
+  if (screenshotError) logger.debug({ companyId }, "Screenshot capture was skipped; visual scoring is unavailable");
   return {
     websiteType: "own",
     psiMobileScore: psi.score,
@@ -512,6 +517,42 @@ export async function checkCompanyWebsite(companyId: number): Promise<{ failed: 
   }
   const result = await runWithRetry(companyId, company.websiteUrl!);
   saveWebsiteCheck(companyId, result);
+  const screenshots = getLatestDesignScreenshotPaths(companyId);
+  if (screenshots) {
+    if (!process.env.GEMINI_API_KEY) {
+      updateLatestDesignResult({
+        companyId,
+        status: "pending",
+        message: "Design score pending: add GEMINI_API_KEY in Replit Secrets.",
+      });
+    } else {
+      try {
+        const design = await scoreWebsiteDesign(screenshots.desktopPath, screenshots.mobilePath);
+        updateLatestDesignResult({
+          companyId,
+          status: "completed",
+          score: design.score,
+          ctaObvious: design.ctaObvious,
+          reasons: design.reasons,
+        });
+      } catch (error) {
+        const isQuota = error instanceof GeminiQuotaError;
+        updateLatestDesignResult({
+          companyId,
+          status: isQuota ? "pending" : "failed",
+          message: isQuota
+            ? "Design score pending: Gemini free-tier quota was reached."
+            : error instanceof Error
+              ? error.message
+              : "Gemini design scoring failed.",
+        });
+        logger.warn(
+          { companyId, status: isQuota ? "pending" : "failed", err: error },
+          "Gemini design scoring did not complete",
+        );
+      }
+    }
+  }
   return { failed: result.checkStatus === "failed", error: result.lastError };
 }
 

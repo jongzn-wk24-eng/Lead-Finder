@@ -10,6 +10,7 @@ export type CompanySource = typeof CompanySource[keyof typeof CompanySource];
 
 
 export const CompanySource = {
+  google_places: 'google_places',
   openstreetmap: 'openstreetmap',
   manual: 'manual',
   sample: 'sample',
