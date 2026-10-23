@@ -20,6 +20,8 @@ export interface Dashboard {
   byStatus: DashboardByStatusItem[];
   bySequence: DashboardBySequenceItem[];
   googlePlacesRequestsCount: number;
+  googleSearchRequestsCount?: number;
+  googleDetailsRequestsCount?: number;
   aiCallsToday: number;
   replyRatesByFindingType: DashboardReplyRatesByFindingTypeItem[];
   replyRatesByChannel: DashboardReplyRatesByChannelItem[];

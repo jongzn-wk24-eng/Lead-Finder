@@ -158,6 +158,48 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ResearchJob" }
         "404": { description: Job not found }
+  /demo-data:
+    post:
+      operationId: loadDemoData
+      tags: [leads]
+      summary: Explicitly load isolated fictional demo records
+      responses:
+        "200":
+          description: Demo records loaded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  companies: { type: integer }
+                required: [companies]
+  /search/test:
+    post:
+      operationId: runOneCallTest
+      tags: [search]
+      summary: One Text Search request; transient preview, no checks or Place Details
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SearchInput" }
+      responses:
+        "200":
+          description: One request and transient Google results; only Place IDs persisted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  requestsMade: { type: integer }
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: true
+                required: [requestsMade, results]
+        "409": { description: Demo mode disallows external research }
+        "502": { description: Google request failed }
   /sample-data:
     delete:
       operationId: deleteSampleData
@@ -540,7 +582,12 @@ components:
         phone: { type: ["string", "null"] }
         websiteUrl: { type: ["string", "null"] }
         mapsUrl: { type: ["string", "null"] }
-        source: { type: string, enum: [google_places, openstreetmap, manual, sample] }
+        source: { type: string, enum: [demo, google_places, manual] }
+        automatedCheckStatus: { type: string }
+        automatedCheckedAt: { type: ["string", "null"] }
+        aiStatus: { type: string }
+        aiModel: { type: ["string", "null"] }
+        aiGeneratedAt: { type: ["string", "null"] }
         osmType: { type: ["string", "null"] }
         osmId: { type: ["string", "null"] }
         osmUpdatedAt: { type: ["string", "null"], format: date-time }
@@ -714,7 +761,7 @@ components:
             companies: { type: integer }
             contacted: { type: integer }
             replies: { type: integer }
-            replyRate: { type: number }
+            replyRate: { type: ["number", "null"] }
             wantsHero: { type: integer }
             heroSent: { type: integer }
             won: { type: integer }
@@ -749,6 +796,8 @@ components:
               count: { type: integer }
             required: [sequenceNo, count]
         googlePlacesRequestsCount: { type: integer }
+        googleSearchRequestsCount: { type: integer }
+        googleDetailsRequestsCount: { type: integer }
         aiCallsToday: { type: integer }
         replyRatesByFindingType:
           type: array
@@ -758,7 +807,7 @@ components:
               findingType: { type: string }
               sent: { type: integer }
               replied: { type: integer }
-              replyRate: { type: number }
+              replyRate: { type: ["number", "null"] }
             required: [findingType, sent, replied, replyRate]
         replyRatesByChannel:
           type: array
@@ -768,13 +817,14 @@ components:
               channel: { type: string }
               sent: { type: integer }
               replied: { type: integer }
-              replyRate: { type: number }
+              replyRate: { type: ["number", "null"] }
             required: [channel, sent, replied, replyRate]
       required: [totals, sentToday, limits, byStatus, bySequence, googlePlacesRequestsCount, aiCallsToday, replyRatesByFindingType, replyRatesByChannel]
     MessageDraft:
       type: object
       properties:
         subject: { type: string }
+        aiModel: { type: ["string", "null"] }
         emailBody: { type: string }
         whatsappBody: { type: string }
         finding: { type: string }
@@ -830,6 +880,7 @@ components:
     Settings:
       type: object
       properties:
+        demoMode: { type: boolean }
         areas: { type: array, items: { type: string } }
         keywords: { type: array, items: { type: string } }
         emailDailyLimit: { type: integer }
@@ -841,10 +892,11 @@ components:
         myWhatsapp: { type: string }
         portfolioUrl: { type: string }
         aiInstruction: { type: string }
-      required: [areas, keywords, emailDailyLimit, whatsappDailyLimit, followup1Days, followup2Days, myName, myTitle, myWhatsapp, portfolioUrl, aiInstruction]
+      required: [demoMode, areas, keywords, emailDailyLimit, whatsappDailyLimit, followup1Days, followup2Days, myName, myTitle, myWhatsapp, portfolioUrl, aiInstruction]
     SettingsUpdate:
       type: object
       properties:
+        demoMode: { type: boolean }
         areas: { type: array, items: { type: string } }
         keywords: { type: array, items: { type: string } }
         emailDailyLimit: { type: integer, minimum: 1, maximum: 100 }

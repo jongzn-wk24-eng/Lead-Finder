@@ -27,10 +27,9 @@ export type CompanySource = typeof CompanySource[keyof typeof CompanySource];
 
 
 export const CompanySource = {
+  demo: 'demo',
   google_places: 'google_places',
-  openstreetmap: 'openstreetmap',
   manual: 'manual',
-  sample: 'sample',
 } as const;
 
 export type CompanyGoogleAttributionsItem = {
@@ -52,6 +51,14 @@ export interface Company {
   /** @nullable */
   mapsUrl?: string | null;
   source: CompanySource;
+  automatedCheckStatus?: string;
+  /** @nullable */
+  automatedCheckedAt?: string | null;
+  aiStatus?: string;
+  /** @nullable */
+  aiModel?: string | null;
+  /** @nullable */
+  aiGeneratedAt?: string | null;
   /** @nullable */
   osmType: string | null;
   /** @nullable */
@@ -276,7 +283,8 @@ export type DashboardTotals = {
   companies: number;
   contacted: number;
   replies: number;
-  replyRate: number;
+  /** @nullable */
+  replyRate: number | null;
   wantsHero: number;
   heroSent: number;
   won: number;
@@ -307,14 +315,16 @@ export type DashboardReplyRatesByFindingTypeItem = {
   findingType: string;
   sent: number;
   replied: number;
-  replyRate: number;
+  /** @nullable */
+  replyRate: number | null;
 };
 
 export type DashboardReplyRatesByChannelItem = {
   channel: string;
   sent: number;
   replied: number;
-  replyRate: number;
+  /** @nullable */
+  replyRate: number | null;
 };
 
 export interface Dashboard {
@@ -324,6 +334,8 @@ export interface Dashboard {
   byStatus: DashboardByStatusItem[];
   bySequence: DashboardBySequenceItem[];
   googlePlacesRequestsCount: number;
+  googleSearchRequestsCount?: number;
+  googleDetailsRequestsCount?: number;
   aiCallsToday: number;
   replyRatesByFindingType: DashboardReplyRatesByFindingTypeItem[];
   replyRatesByChannel: DashboardReplyRatesByChannelItem[];
@@ -339,6 +351,8 @@ export const MessageDraftDraftMode = {
 
 export interface MessageDraft {
   subject: string;
+  /** @nullable */
+  aiModel?: string | null;
   emailBody: string;
   whatsappBody: string;
   finding: string;
@@ -419,6 +433,7 @@ export interface ReplyInput {
 }
 
 export interface Settings {
+  demoMode: boolean;
   areas: string[];
   keywords: string[];
   emailDailyLimit: number;
@@ -433,6 +448,7 @@ export interface Settings {
 }
 
 export interface SettingsUpdate {
+  demoMode?: boolean;
   areas?: string[];
   keywords?: string[];
   /**
@@ -461,6 +477,17 @@ export interface SettingsUpdate {
   portfolioUrl?: string;
   aiInstruction?: string;
 }
+
+export type LoadDemoData200 = {
+  companies: number;
+};
+
+export type RunOneCallTest200ResultsItem = { [key: string]: unknown };
+
+export type RunOneCallTest200 = {
+  requestsMade: number;
+  results: RunOneCallTest200ResultsItem[];
+};
 
 export type ListCompaniesParams = {
 search?: string;

@@ -34,10 +34,12 @@ import type {
   HealthStatus,
   ListActivityParams,
   ListCompaniesParams,
+  LoadDemoData200,
   MessageDraft,
   OkResult,
   ReplyInput,
   ResearchJob,
+  RunOneCallTest200,
   SampleDeleteResult,
   SearchEstimate,
   SearchInput,
@@ -793,6 +795,168 @@ export const useCancelSearchJob = <TError = ErrorType<void>,
         TContext
       > => {
       return useMutation(getCancelSearchJobMutationOptions(options));
+    }
+
+export const getLoadDemoDataUrl = () => {
+
+
+
+
+  return `/api/demo-data`
+}
+
+/**
+ * @summary Explicitly load isolated fictional demo records
+ */
+export const loadDemoData = async ( options?: Parameters<typeof customFetch>[1]): Promise<LoadDemoData200> => {
+
+  return customFetch<LoadDemoData200>(getLoadDemoDataUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getLoadDemoDataMutationKey = () => ['loadDemoData'] as const;
+
+export const getLoadDemoDataMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof loadDemoData>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof loadDemoData>>, TError,void, TContext> => {
+
+const mutationKey = getLoadDemoDataMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof loadDemoData>>, void> = () => {
+
+
+          return  loadDemoData(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type LoadDemoDataMutationResult = NonNullable<Awaited<ReturnType<typeof loadDemoData>>>
+
+    export type LoadDemoDataMutationError = ErrorType<unknown>
+
+
+    /**
+ * @summary Explicitly load isolated fictional demo records
+ */
+export const useLoadDemoData = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof loadDemoData>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof loadDemoData>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getLoadDemoDataMutationOptions(options));
+    }
+
+export const getRunOneCallTestUrl = () => {
+
+
+
+
+  return `/api/search/test`
+}
+
+/**
+ * @summary One Text Search request; transient preview, no checks or Place Details
+ */
+export const runOneCallTest = async (searchInput: SearchInput, options?: Parameters<typeof customFetch>[1]): Promise<RunOneCallTest200> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<RunOneCallTest200>(getRunOneCallTestUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(searchInput)
+  }
+);}
+
+
+
+
+
+export const getRunOneCallTestMutationKey = () => ['runOneCallTest'] as const;
+
+export const getRunOneCallTestMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof runOneCallTest>>, TError,RunOneCallTestMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof runOneCallTest>>, TError,RunOneCallTestMutationVariables, TContext> => {
+
+const mutationKey = getRunOneCallTestMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof runOneCallTest>>, RunOneCallTestMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  runOneCallTest(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RunOneCallTestMutationResult = NonNullable<Awaited<ReturnType<typeof runOneCallTest>>>
+    export type RunOneCallTestMutationBody = BodyType<SearchInput>
+    export type RunOneCallTestMutationError = ErrorType<void>
+    export type RunOneCallTestMutationVariables = {data: BodyType<SearchInput>}
+
+    /**
+ * @summary One Text Search request; transient preview, no checks or Place Details
+ */
+export const useRunOneCallTest = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof runOneCallTest>>, TError,RunOneCallTestMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof runOneCallTest>>,
+        TError,
+        RunOneCallTestMutationVariables,
+        TContext
+      > => {
+      return useMutation(getRunOneCallTestMutationOptions(options));
     }
 
 export const getDeleteSampleDataUrl = () => {

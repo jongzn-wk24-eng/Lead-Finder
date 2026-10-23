@@ -10,7 +10,8 @@ export type DashboardTotals = {
   companies: number;
   contacted: number;
   replies: number;
-  replyRate: number;
+  /** @nullable */
+  replyRate: number | null;
   wantsHero: number;
   heroSent: number;
   won: number;

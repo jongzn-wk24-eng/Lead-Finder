@@ -1,6 +1,6 @@
 import { getPrivateScreenshot } from "./screenshot-storage";
 
-const MODEL = "gemini-3.6-flash";
+export const MODEL = "gemini-3.6-flash";
 const GENERATE_URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
 const MIN_REQUEST_INTERVAL_MS = 5_000;
 
@@ -47,11 +47,11 @@ async function withRateLimit<T>(operation: () => Promise<T>): Promise<T> {
   return current;
 }
 
-async function generateJson(parts: GeminiPart[], onRequest?: () => void) {
+async function generateJson(parts: GeminiPart[], onRequest?: () => void | Promise<void>) {
   const key = process.env.GEMINI_API_KEY;
   if (!key) throw new GeminiApiError("Gemini is not configured. Add GEMINI_API_KEY in Replit Secrets.");
   return withRateLimit(async () => {
-    onRequest?.();
+    await onRequest?.();
     const response = await fetch(GENERATE_URL, {
       method: "POST",
       headers: {
@@ -108,7 +108,7 @@ export type DesignAnalysis = {
   reasons: string[];
 };
 
-export async function scoreWebsiteDesign(desktopPath: string, mobilePath: string, onRequest?: () => void): Promise<DesignAnalysis> {
+export async function scoreWebsiteDesign(desktopPath: string, mobilePath: string, onRequest?: () => void | Promise<void>): Promise<DesignAnalysis> {
   const [desktopFile, mobileFile] = await Promise.all([
     getPrivateScreenshot(desktopPath),
     getPrivateScreenshot(mobilePath),
@@ -152,7 +152,7 @@ export async function generateOutreachDraft(input: {
   senderTitle: string;
   portfolioUrl: string;
   whatsappNumber: string;
-}, onRequest?: () => void): Promise<DraftContent> {
+}, onRequest?: () => void | Promise<void>): Promise<DraftContent> {
   const result = await generateJson([{
     text: `Follow this editable instruction exactly where it does not conflict with the strict output rules:
 ${input.aiInstruction}

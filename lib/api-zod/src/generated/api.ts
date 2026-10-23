@@ -58,7 +58,7 @@ export const GetDashboardResponse = zod.object({
   "companies": zod.number().int(),
   "contacted": zod.number().int(),
   "replies": zod.number().int(),
-  "replyRate": zod.number(),
+  "replyRate": zod.number().nullable(),
   "wantsHero": zod.number().int(),
   "heroSent": zod.number().int(),
   "won": zod.number().int(),
@@ -81,18 +81,20 @@ export const GetDashboardResponse = zod.object({
   "count": zod.number().int()
 })),
   "googlePlacesRequestsCount": zod.number().int(),
+  "googleSearchRequestsCount": zod.number().int().optional(),
+  "googleDetailsRequestsCount": zod.number().int().optional(),
   "aiCallsToday": zod.number().int(),
   "replyRatesByFindingType": zod.array(zod.object({
   "findingType": zod.string(),
   "sent": zod.number().int(),
   "replied": zod.number().int(),
-  "replyRate": zod.number()
+  "replyRate": zod.number().nullable()
 })),
   "replyRatesByChannel": zod.array(zod.object({
   "channel": zod.string(),
   "sent": zod.number().int(),
   "replied": zod.number().int(),
-  "replyRate": zod.number()
+  "replyRate": zod.number().nullable()
 }))
 })
 
@@ -219,6 +221,38 @@ export const CancelSearchJobResponse = zod.object({
 
 
 /**
+ * @summary Explicitly load isolated fictional demo records
+ */
+export const LoadDemoDataResponse = zod.object({
+  "companies": zod.number().int()
+})
+
+
+/**
+ * @summary One Text Search request; transient preview, no checks or Place Details
+ */
+export const runOneCallTestBodyAreasItemMax = 100;
+
+export const runOneCallTestBodyAreasMax = 20;
+
+export const runOneCallTestBodyKeywordsItemMax = 100;
+
+export const runOneCallTestBodyKeywordsMax = 30;
+
+
+
+export const RunOneCallTestBody = zod.object({
+  "areas": zod.array(zod.string().min(1).max(runOneCallTestBodyAreasItemMax)).min(1).max(runOneCallTestBodyAreasMax),
+  "keywords": zod.array(zod.string().min(1).max(runOneCallTestBodyKeywordsItemMax)).min(1).max(runOneCallTestBodyKeywordsMax)
+})
+
+export const RunOneCallTestResponse = zod.object({
+  "requestsMade": zod.number().int(),
+  "results": zod.array(zod.record(zod.string(), zod.unknown()))
+})
+
+
+/**
  * @summary Delete only seeded fictional sample businesses and their related records
  */
 export const DeleteSampleDataResponse = zod.object({
@@ -250,7 +284,12 @@ export const ListCompaniesResponseItem = zod.object({
   "phone": zod.string().nullish(),
   "websiteUrl": zod.string().nullish(),
   "mapsUrl": zod.string().nullish(),
-  "source": zod.enum(['google_places', 'openstreetmap', 'manual', 'sample']),
+  "source": zod.enum(['demo', 'google_places', 'manual']),
+  "automatedCheckStatus": zod.string().optional(),
+  "automatedCheckedAt": zod.string().nullish(),
+  "aiStatus": zod.string().optional(),
+  "aiModel": zod.string().nullish(),
+  "aiGeneratedAt": zod.string().nullish(),
   "osmType": zod.string().nullable(),
   "osmId": zod.string().nullable(),
   "osmUpdatedAt": zod.coerce.date().nullable(),
@@ -323,7 +362,12 @@ export const CreateCompanyResponse = zod.object({
   "phone": zod.string().nullish(),
   "websiteUrl": zod.string().nullish(),
   "mapsUrl": zod.string().nullish(),
-  "source": zod.enum(['google_places', 'openstreetmap', 'manual', 'sample']),
+  "source": zod.enum(['demo', 'google_places', 'manual']),
+  "automatedCheckStatus": zod.string().optional(),
+  "automatedCheckedAt": zod.string().nullish(),
+  "aiStatus": zod.string().optional(),
+  "aiModel": zod.string().nullish(),
+  "aiGeneratedAt": zod.string().nullish(),
   "osmType": zod.string().nullable(),
   "osmId": zod.string().nullable(),
   "osmUpdatedAt": zod.coerce.date().nullable(),
@@ -387,7 +431,12 @@ export const GetCompanyResponse = zod.object({
   "phone": zod.string().nullish(),
   "websiteUrl": zod.string().nullish(),
   "mapsUrl": zod.string().nullish(),
-  "source": zod.enum(['google_places', 'openstreetmap', 'manual', 'sample']),
+  "source": zod.enum(['demo', 'google_places', 'manual']),
+  "automatedCheckStatus": zod.string().optional(),
+  "automatedCheckedAt": zod.string().nullish(),
+  "aiStatus": zod.string().optional(),
+  "aiModel": zod.string().nullish(),
+  "aiGeneratedAt": zod.string().nullish(),
   "osmType": zod.string().nullable(),
   "osmId": zod.string().nullable(),
   "osmUpdatedAt": zod.coerce.date().nullable(),
@@ -493,7 +542,12 @@ export const UpdateCompanyResponse = zod.object({
   "phone": zod.string().nullish(),
   "websiteUrl": zod.string().nullish(),
   "mapsUrl": zod.string().nullish(),
-  "source": zod.enum(['google_places', 'openstreetmap', 'manual', 'sample']),
+  "source": zod.enum(['demo', 'google_places', 'manual']),
+  "automatedCheckStatus": zod.string().optional(),
+  "automatedCheckedAt": zod.string().nullish(),
+  "aiStatus": zod.string().optional(),
+  "aiModel": zod.string().nullish(),
+  "aiGeneratedAt": zod.string().nullish(),
   "osmType": zod.string().nullable(),
   "osmId": zod.string().nullable(),
   "osmUpdatedAt": zod.coerce.date().nullable(),
@@ -616,7 +670,12 @@ export const UpdateCompanyStatusResponse = zod.object({
   "phone": zod.string().nullish(),
   "websiteUrl": zod.string().nullish(),
   "mapsUrl": zod.string().nullish(),
-  "source": zod.enum(['google_places', 'openstreetmap', 'manual', 'sample']),
+  "source": zod.enum(['demo', 'google_places', 'manual']),
+  "automatedCheckStatus": zod.string().optional(),
+  "automatedCheckedAt": zod.string().nullish(),
+  "aiStatus": zod.string().optional(),
+  "aiModel": zod.string().nullish(),
+  "aiGeneratedAt": zod.string().nullish(),
   "osmType": zod.string().nullable(),
   "osmId": zod.string().nullable(),
   "osmUpdatedAt": zod.coerce.date().nullable(),
@@ -670,7 +729,12 @@ export const MarkDoNotContactResponse = zod.object({
   "phone": zod.string().nullish(),
   "websiteUrl": zod.string().nullish(),
   "mapsUrl": zod.string().nullish(),
-  "source": zod.enum(['google_places', 'openstreetmap', 'manual', 'sample']),
+  "source": zod.enum(['demo', 'google_places', 'manual']),
+  "automatedCheckStatus": zod.string().optional(),
+  "automatedCheckedAt": zod.string().nullish(),
+  "aiStatus": zod.string().optional(),
+  "aiModel": zod.string().nullish(),
+  "aiGeneratedAt": zod.string().nullish(),
   "osmType": zod.string().nullable(),
   "osmId": zod.string().nullable(),
   "osmUpdatedAt": zod.coerce.date().nullable(),
@@ -716,6 +780,7 @@ export const GenerateMessageDraftParams = zod.object({
 
 export const GenerateMessageDraftResponse = zod.object({
   "subject": zod.string(),
+  "aiModel": zod.string().nullish(),
   "emailBody": zod.string(),
   "whatsappBody": zod.string(),
   "finding": zod.string(),
@@ -769,7 +834,12 @@ export const MarkMessageSentResponse = zod.object({
   "phone": zod.string().nullish(),
   "websiteUrl": zod.string().nullish(),
   "mapsUrl": zod.string().nullish(),
-  "source": zod.enum(['google_places', 'openstreetmap', 'manual', 'sample']),
+  "source": zod.enum(['demo', 'google_places', 'manual']),
+  "automatedCheckStatus": zod.string().optional(),
+  "automatedCheckedAt": zod.string().nullish(),
+  "aiStatus": zod.string().optional(),
+  "aiModel": zod.string().nullish(),
+  "aiGeneratedAt": zod.string().nullish(),
   "osmType": zod.string().nullable(),
   "osmId": zod.string().nullable(),
   "osmUpdatedAt": zod.coerce.date().nullable(),
@@ -827,7 +897,12 @@ export const LogReplyResponse = zod.object({
   "phone": zod.string().nullish(),
   "websiteUrl": zod.string().nullish(),
   "mapsUrl": zod.string().nullish(),
-  "source": zod.enum(['google_places', 'openstreetmap', 'manual', 'sample']),
+  "source": zod.enum(['demo', 'google_places', 'manual']),
+  "automatedCheckStatus": zod.string().optional(),
+  "automatedCheckedAt": zod.string().nullish(),
+  "aiStatus": zod.string().optional(),
+  "aiModel": zod.string().nullish(),
+  "aiGeneratedAt": zod.string().nullish(),
   "osmType": zod.string().nullable(),
   "osmId": zod.string().nullable(),
   "osmUpdatedAt": zod.coerce.date().nullable(),
@@ -906,6 +981,7 @@ export const ListFollowupsResponse = zod.array(ListFollowupsResponseItem)
  * @summary Read settings
  */
 export const GetSettingsResponse = zod.object({
+  "demoMode": zod.boolean(),
   "areas": zod.array(zod.string()),
   "keywords": zod.array(zod.string()),
   "emailDailyLimit": zod.number().int(),
@@ -934,6 +1010,7 @@ export const updateSettingsBodyFollowup2DaysMax = 90;
 
 
 export const UpdateSettingsBody = zod.object({
+  "demoMode": zod.boolean().optional(),
   "areas": zod.array(zod.string()).optional(),
   "keywords": zod.array(zod.string()).optional(),
   "emailDailyLimit": zod.number().int().min(1).max(updateSettingsBodyEmailDailyLimitMax).optional(),
@@ -948,6 +1025,7 @@ export const UpdateSettingsBody = zod.object({
 })
 
 export const UpdateSettingsResponse = zod.object({
+  "demoMode": zod.boolean(),
   "areas": zod.array(zod.string()),
   "keywords": zod.array(zod.string()),
   "emailDailyLimit": zod.number().int(),

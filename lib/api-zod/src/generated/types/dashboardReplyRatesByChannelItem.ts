@@ -10,5 +10,6 @@ export type DashboardReplyRatesByChannelItem = {
   channel: string;
   sent: number;
   replied: number;
-  replyRate: number;
+  /** @nullable */
+  replyRate: number | null;
 };

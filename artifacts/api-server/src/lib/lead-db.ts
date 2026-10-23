@@ -1,8 +1,8 @@
-import { mkdirSync } from "node:fs";
-import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { DatabaseSync, type SQLInputValue } from "node:sqlite";
-import { generateOutreachDraft } from "./gemini-ai";
+import { leadDb, type SQLInputValue } from "./lead-postgres";
+export { leadDb } from "./lead-postgres";
+import { generateOutreachDraft, MODEL } from "./gemini-ai";
+import { inDemoMode, withDataMode, withAllData, withTransaction } from "./lead-postgres";
 
 export const COMPANY_STATUSES = [
   "New",
@@ -53,211 +53,8 @@ const DEFAULT_KEYWORDS = [
 const DEFAULT_AI_INSTRUCTION =
   "Write one short cold email (max 100 words) from Dylan Jong, a freelance web designer, to a local business owner in Malaysia. Use only the facts provided. Never invent numbers or claims. Mention the company and ONE real finding from stored website checks; if none is provided, reply 'Need a real finding first.' Do not imply a relationship or claim you checked the site on a phone. Say the business was listed on Google Places only when that is its source. Include one sentence on who I am; one small free offer (free homepage concept, no strings, ask 'Want me to send it over?'); one portfolio link; one opt-out line; sign-off. Simple spoken English, short sentences. Avoid exclamation marks, ALL CAPS, buzzwords, guarantees, percentages, prices, and claims about enquiries. Use 'might' or 'seems' for anything not directly measured. Also write a WhatsApp version, max 40 words.";
 
-const dbFile = process.env.LEAD_DB_PATH
-  ? path.resolve(process.env.LEAD_DB_PATH)
-  : path.join(process.cwd(), "data", "lead-finder.sqlite");
-mkdirSync(path.dirname(dbFile), { recursive: true });
-
-export const leadDb = new DatabaseSync(dbFile);
-leadDb.exec(`
-  PRAGMA journal_mode = WAL;
-  PRAGMA foreign_keys = ON;
-  CREATE TABLE IF NOT EXISTS companies (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    place_id TEXT NOT NULL UNIQUE,
-    name TEXT NOT NULL,
-    address TEXT NOT NULL DEFAULT '',
-    area TEXT NOT NULL DEFAULT '',
-    keyword TEXT NOT NULL DEFAULT '',
-    phone TEXT,
-    website_url TEXT,
-    maps_url TEXT,
-    rating REAL NOT NULL DEFAULT 0,
-    review_count INTEGER NOT NULL DEFAULT 0,
-    price_level TEXT,
-    email TEXT,
-    whatsapp TEXT,
-    first_name TEXT NOT NULL DEFAULT '',
-    status TEXT NOT NULL DEFAULT 'New',
-    value_score INTEGER NOT NULL DEFAULT 0,
-    problem_score INTEGER NOT NULL DEFAULT 0,
-    opportunity_score INTEGER NOT NULL DEFAULT 0,
-    reasons_json TEXT NOT NULL DEFAULT '[]',
-    finding_type TEXT,
-    notes TEXT NOT NULL DEFAULT '',
-    fetched_at TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    is_sample_data INTEGER NOT NULL DEFAULT 0,
-    source TEXT NOT NULL DEFAULT 'manual',
-    osm_type TEXT,
-    osm_id TEXT,
-    osm_updated_at TEXT,
-    google_updated_at TEXT,
-    rating_available INTEGER NOT NULL DEFAULT 1,
-    value_score_method TEXT NOT NULL DEFAULT 'manual',
-    value_score_base INTEGER NOT NULL DEFAULT 0,
-    value_score_details_json TEXT NOT NULL DEFAULT '[]',
-    osm_opening_hours TEXT
-  );
-  CREATE TABLE IF NOT EXISTS checks (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
-    checked_at TEXT NOT NULL,
-    website_type TEXT NOT NULL,
-    psi_mobile_score INTEGER,
-    lcp_seconds REAL,
-    https INTEGER,
-    has_viewport INTEGER,
-    copyright_year INTEGER,
-    has_tel_link INTEGER,
-    has_whatsapp_link INTEGER,
-    has_contact_form INTEGER,
-    has_contact_page INTEGER,
-    site_builder TEXT,
-    design_score INTEGER,
-    design_reason TEXT,
-    cta_obvious INTEGER,
-    design_status TEXT NOT NULL DEFAULT 'unavailable',
-    website_problem_score INTEGER NOT NULL DEFAULT 0,
-    retry_count INTEGER NOT NULL DEFAULT 0,
-    check_status TEXT NOT NULL DEFAULT 'completed',
-    last_error TEXT,
-    screenshot_desktop_path TEXT,
-    screenshot_mobile_path TEXT
-  );
-  CREATE TABLE IF NOT EXISTS activity (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
-    timestamp TEXT NOT NULL,
-    action TEXT NOT NULL,
-    channel TEXT,
-    sequence_no INTEGER,
-    note TEXT NOT NULL DEFAULT ''
-  );
-  CREATE TABLE IF NOT EXISTS outreach (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
-    channel TEXT NOT NULL,
-    sequence_no INTEGER NOT NULL,
-    subject TEXT,
-    body TEXT NOT NULL,
-    sent_at TEXT,
-    replied_at TEXT,
-    result TEXT,
-    next_followup_at TEXT
-  );
-  CREATE TABLE IF NOT EXISTS searches (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    keyword TEXT NOT NULL,
-    area TEXT NOT NULL,
-    ran_at TEXT NOT NULL,
-    api_calls INTEGER NOT NULL DEFAULT 0,
-    results_count INTEGER NOT NULL DEFAULT 0,
-    provider TEXT NOT NULL DEFAULT 'openstreetmap'
-  );
-  CREATE TABLE IF NOT EXISTS settings (
-    key TEXT PRIMARY KEY,
-    value_json TEXT NOT NULL
-  );
-  CREATE TABLE IF NOT EXISTS app_meta (
-    key TEXT PRIMARY KEY,
-    value TEXT NOT NULL
-  );
-  CREATE TABLE IF NOT EXISTS osm_area_cache (
-    area_key TEXT PRIMARY KEY,
-    area_name TEXT NOT NULL,
-    south REAL NOT NULL,
-    west REAL NOT NULL,
-    north REAL NOT NULL,
-    east REAL NOT NULL,
-    fetched_at TEXT NOT NULL
-  );
-  CREATE TABLE IF NOT EXISTS research_jobs (
-    id TEXT PRIMARY KEY,
-    kind TEXT NOT NULL,
-    status TEXT NOT NULL,
-    phase TEXT NOT NULL,
-    total INTEGER NOT NULL DEFAULT 0,
-    completed INTEGER NOT NULL DEFAULT 0,
-    requests_estimated INTEGER NOT NULL DEFAULT 0,
-    requests_made INTEGER NOT NULL DEFAULT 0,
-    new_companies INTEGER NOT NULL DEFAULT 0,
-    updated_companies INTEGER NOT NULL DEFAULT 0,
-    skipped_companies INTEGER NOT NULL DEFAULT 0,
-    checks_failed INTEGER NOT NULL DEFAULT 0,
-    current_label TEXT,
-    error TEXT,
-    cancel_requested INTEGER NOT NULL DEFAULT 0,
-    input_json TEXT NOT NULL DEFAULT '{}',
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-  );
-  CREATE INDEX IF NOT EXISTS idx_activity_company_time ON activity(company_id, timestamp DESC);
-  CREATE INDEX IF NOT EXISTS idx_outreach_company_time ON outreach(company_id, sent_at DESC);
-  CREATE INDEX IF NOT EXISTS idx_outreach_sent_channel ON outreach(channel, sent_at);
-`);
-
-function addColumnIfMissing(table: string, column: string, definition: string) {
-  const columns = leadDb.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
-  if (!columns.some((item) => item.name === column)) {
-    leadDb.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
-  }
-}
-
-for (const [column, definition] of [
-  ["source", "TEXT NOT NULL DEFAULT 'manual'"],
-  ["osm_type", "TEXT"],
-  ["osm_id", "TEXT"],
-  ["osm_updated_at", "TEXT"],
-  ["google_updated_at", "TEXT"],
-  ["rating_available", "INTEGER NOT NULL DEFAULT 1"],
-  ["value_score_method", "TEXT NOT NULL DEFAULT 'manual'"],
-  ["value_score_base", "INTEGER NOT NULL DEFAULT 0"],
-  ["value_score_details_json", "TEXT NOT NULL DEFAULT '[]'"],
-  ["osm_opening_hours", "TEXT"],
-] as const) addColumnIfMissing("companies", column, definition);
-
-for (const [column, definition] of [
-  ["retry_count", "INTEGER NOT NULL DEFAULT 0"],
-  ["check_status", "TEXT NOT NULL DEFAULT 'completed'"],
-  ["last_error", "TEXT"],
-  ["screenshot_desktop_path", "TEXT"],
-  ["screenshot_mobile_path", "TEXT"],
-  ["has_contact_page", "INTEGER"],
-  ["design_status", "TEXT NOT NULL DEFAULT 'unavailable'"],
-  ["website_problem_score", "INTEGER NOT NULL DEFAULT 0"],
-] as const) addColumnIfMissing("checks", column, definition);
-addColumnIfMissing("searches", "provider", "TEXT NOT NULL DEFAULT 'openstreetmap'");
-addColumnIfMissing("outreach", "finding_type_at_send", "TEXT");
-leadDb.exec("CREATE TABLE IF NOT EXISTS ai_api_usage (requested_at TEXT NOT NULL)");
-
-leadDb.exec(`
-  UPDATE checks SET design_status = 'completed'
-  WHERE design_score IS NOT NULL AND design_status = 'unavailable';
-  UPDATE checks SET design_status = 'pending'
-  WHERE design_score IS NULL AND screenshot_desktop_path IS NOT NULL
-    AND screenshot_mobile_path IS NOT NULL AND design_status = 'unavailable';
-`);
-
-leadDb.exec(`
-  UPDATE companies SET source = 'sample', value_score_method = 'sample legacy score'
-  WHERE is_sample_data = 1 AND source = 'manual';
-`);
-
-// Google-returned business fields are never retained. Keep IDs and independently
-// collected website research / user-owned outreach data only.
-leadDb.exec(`
-  UPDATE companies SET
-    name = 'Google Place ' || substr(place_id, -6), address = '',
-    phone = NULL, website_url = NULL, maps_url = NULL, rating = 0,
-    review_count = 0, price_level = NULL, rating_available = 0,
-    value_score = 0, value_score_base = 0, value_score_details_json = '[]',
-    value_score_method = 'Live Google Places estimate (not stored)',
-    opportunity_score = problem_score
-  WHERE source = 'google_places';
-`);
-
 const DEFAULT_SETTINGS = {
+  demoMode: false,
   areas: DEFAULT_AREAS,
   keywords: DEFAULT_KEYWORDS,
   emailDailyLimit: 15,
@@ -283,7 +80,7 @@ export type Company = {
   phone: string | null;
   websiteUrl: string | null;
   mapsUrl: string | null;
-  source: "google_places" | "openstreetmap" | "manual" | "sample";
+  source: "demo" | "google_places" | "manual";
   osmType: string | null;
   osmId: string | null;
   osmUpdatedAt: string | null;
@@ -312,10 +109,18 @@ export type Company = {
   whatsappCount: number;
   isDoNotContact: boolean;
   isSampleData: boolean;
+  automatedCheckStatus: string;
+  automatedCheckedAt: string | null;
+  aiStatus: string;
+  aiModel: string | null;
+  aiGeneratedAt: string | null;
 };
 
 const COMPANY_COLUMNS = `
   c.*,
+  (SELECT ch.check_status FROM checks ch WHERE ch.company_id = c.id ORDER BY ch.checked_at DESC, ch.id DESC LIMIT 1) AS automated_check_status,
+  (SELECT ch.checked_at FROM checks ch WHERE ch.company_id = c.id ORDER BY ch.checked_at DESC, ch.id DESC LIMIT 1) AS automated_checked_at,
+  (SELECT ch.design_status FROM checks ch WHERE ch.company_id = c.id ORDER BY ch.checked_at DESC, ch.id DESC LIMIT 1) AS ai_status,
   (SELECT MAX(o.sent_at) FROM outreach o WHERE o.company_id = c.id) AS last_contacted_at,
   (SELECT MIN(o.next_followup_at) FROM outreach o
     WHERE o.company_id = c.id AND o.next_followup_at IS NOT NULL AND o.result IS NULL) AS next_followup_at,
@@ -349,7 +154,7 @@ function toCompany(row: CompanyRow): Company {
     phone: row.phone == null ? null : String(row.phone),
     websiteUrl: row.website_url == null ? null : String(row.website_url),
     mapsUrl: row.maps_url == null ? null : String(row.maps_url),
-    source: String(row.source ?? (Number(row.is_sample_data ?? 0) ? "sample" : "manual")) as Company["source"],
+    source: String(row.source ?? (Number(row.is_sample_data ?? 0) ? "demo" : "manual")) as Company["source"],
     osmType: row.osm_type == null ? null : String(row.osm_type),
     osmId: row.osm_id == null ? null : String(row.osm_id),
     osmUpdatedAt: row.osm_updated_at == null ? null : String(row.osm_updated_at),
@@ -377,7 +182,12 @@ function toCompany(row: CompanyRow): Company {
     emailCount: Number(row.email_count ?? 0),
     whatsappCount: Number(row.whatsapp_count ?? 0),
     isDoNotContact: row.status === "Do not contact",
-    isSampleData: Number(row.is_sample_data ?? 0) === 1,
+    isSampleData: row.source === "demo",
+    automatedCheckStatus: String(row.automated_check_status ?? "unavailable"),
+    automatedCheckedAt: row.automated_checked_at == null ? null : String(row.automated_checked_at),
+    aiStatus: String(row.ai_status ?? "unavailable"),
+    aiModel: row.ai_model == null ? null : String(row.ai_model),
+    aiGeneratedAt: row.ai_generated_at == null ? null : String(row.ai_generated_at),
   };
 }
 
@@ -385,21 +195,21 @@ function nowIso() {
   return new Date().toISOString();
 }
 
-function setSetting(key: string, value: unknown) {
-  leadDb
+async function setSetting(key: string, value: unknown) {
+  (await leadDb
     .prepare(
       `INSERT INTO settings (key, value_json) VALUES (?, ?)
        ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json`,
     )
-    .run(key, JSON.stringify(value));
+    .run(key, JSON.stringify(value)));
 }
 
-function seedSettings() {
+async function seedSettings() {
   const insert = leadDb.prepare(
     "INSERT OR IGNORE INTO settings (key, value_json) VALUES (?, ?)",
   );
   for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
-    insert.run(key, JSON.stringify(value));
+    (await insert.run(key, JSON.stringify(value)));
   }
 }
 
@@ -422,9 +232,9 @@ function sampleReason(type: string, index: number): string {
   }
 }
 
-function seedSampleCompanies() {
+async function seedSampleCompanies() {
   const existing = Number(
-    (leadDb.prepare("SELECT COUNT(*) AS count FROM companies").get() as { count: number }).count,
+    ((await leadDb.prepare("SELECT COUNT(*) AS count FROM companies WHERE place_id LIKE 'sample-kl-%'").get()) as { count: number }).count,
   );
   if (existing > 0) return;
 
@@ -461,7 +271,7 @@ function seedSampleCompanies() {
       rating, review_count, price_level, email, whatsapp, status,
       value_score, problem_score, opportunity_score, reasons_json, finding_type,
       fetched_at, created_at, is_sample_data, source, rating_available, value_score_method
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'sample', 1, 'sample legacy score')
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'demo', 1, 'demo legacy score')
   `);
   const insertCheck = leadDb.prepare(`
     INSERT INTO checks (
@@ -507,7 +317,7 @@ function seedSampleCompanies() {
         : findingType === "site_down"
           ? "down"
           : "own";
-    const result = insertCompany.run(
+    const result = (await insertCompany.run(
       `sample-kl-${String(index + 1).padStart(3, "0")}`,
       index < 2 ? "Sample Dental Group" : `Sample ${category} ${String(index + 1).padStart(2, "0")}`,
       `${100 + index}, Jalan Demo ${index + 1}, Kuala Lumpur`,
@@ -527,11 +337,11 @@ function seedSampleCompanies() {
       findingType,
       fetchedAt,
       fetchedAt,
-    );
+    ));
     const companyId = Number(result.lastInsertRowid);
     const psiScore = findingType === "slow_mobile" ? 28 + (index % 4) * 5 : null;
     const lcp = findingType === "slow_mobile" ? Number((5.2 + (index % 5) * 0.7).toFixed(1)) : null;
-    insertCheck.run(
+    (await insertCheck.run(
       companyId,
       fetchedAt,
       websiteType,
@@ -547,54 +357,34 @@ function seedSampleCompanies() {
       findingType === "outdated" ? 4 : findingType === "cta_hidden" ? 5 : null,
       findingType === "outdated" ? "Sample design finding for preview only." : null,
       findingType === "cta_hidden" ? 0 : null,
-    );
+    ));
     if (index % 3 === 0) {
-      leadDb
+      (await leadDb
         .prepare(
           "INSERT INTO activity (company_id, timestamp, action, channel, note) VALUES (?, ?, 'copied_email', 'email', 'Sample activity only; no message was sent.')",
         )
-        .run(companyId, fetchedAt);
+        .run(companyId, fetchedAt));
     }
   }
 }
 
-seedSettings();
-const savedAiInstruction = leadDb.prepare("SELECT value_json FROM settings WHERE key = 'aiInstruction'").get() as { value_json: string } | undefined;
-if (savedAiInstruction) {
-  try {
-    const instruction = JSON.parse(savedAiInstruction.value_json);
-    if (typeof instruction === "string" && /Google Maps|OpenStreetMap|checked on phone/i.test(instruction)) {
-      setSetting(
-        "aiInstruction",
-        instruction
-          .replace(/Google Maps/gi, "Google Places")
-          .replace(/OpenStreetMap/gi, "Google Places")
-          .replace(/and checked on phone/gi, "and checked the website"),
-      );
-    }
-  } catch {
-    // Keep the saved setting untouched when its stored format is invalid.
-  }
-}
-seedSampleCompanies();
-
-function seedSamplePipelineOnce() {
-  const alreadySeeded = leadDb
+async function seedSamplePipelineOnce() {
+  const alreadySeeded = (await leadDb
     .prepare("SELECT value FROM app_meta WHERE key = 'sample_pipeline_seeded'")
-    .get() as { value: string } | undefined;
+    .get()) as { value: string } | undefined;
   if (alreadySeeded) return;
 
-  const sampleCompanies = leadDb
+  const sampleCompanies = (await leadDb
     .prepare("SELECT id FROM companies WHERE is_sample_data = 1 ORDER BY id")
-    .all() as { id: number }[];
+    .all()) as { id: number }[];
   if (sampleCompanies.length !== 30) return;
-  leadDb
+  (await leadDb
     .prepare(
       `DELETE FROM activity WHERE company_id IN
        (SELECT id FROM companies WHERE is_sample_data = 1)
        AND note LIKE 'Sample activity%'`,
     )
-    .run();
+    .run());
 
   const statuses = [
     "New",
@@ -627,28 +417,28 @@ function seedSamplePipelineOnce() {
   for (let index = 0; index < sampleCompanies.length; index += 1) {
     const companyId = Number(sampleCompanies[index]!.id);
     const status = statuses[index % statuses.length]!;
-    statusUpdate.run(status, companyId);
+    (await statusUpdate.run(status, companyId));
     if (status === "New") continue;
     if (status === "Claimed") {
-      addHistory.run(
+      (await addHistory.run(
         companyId,
         stampDaysAgo(5),
         "copied_email",
         "email",
         null,
         "Sample activity only; no message was sent.",
-      );
+      ));
       continue;
     }
     if (status === "Do not contact") {
-      addHistory.run(
+      (await addHistory.run(
         companyId,
         stampDaysAgo(5),
         "marked_do_not_contact",
         null,
         null,
         "Sample status only.",
-      );
+      ));
       continue;
     }
 
@@ -667,7 +457,7 @@ function seedSamplePipelineOnce() {
       const repliedAt = status === "Replied" && sequence === emailCount ? stampDaysAgo(2) : null;
       const result =
         repliedAt ? "replied" : status === "Not interested" ? "not_interested" : status === "Closed: no reply" && sequence === 3 ? "no_reply" : null;
-      addOutreach.run(
+      (await addOutreach.run(
         companyId,
         sequence,
         `Sample subject ${sequence}`,
@@ -676,46 +466,45 @@ function seedSamplePipelineOnce() {
         repliedAt,
         result,
         nextFollowupAt,
-      );
-      addHistory.run(
+      ));
+      (await addHistory.run(
         companyId,
         sentAt,
         "marked_sent",
         "email",
         sequence,
         "Sample activity only; no message was sent.",
-      );
+      ));
     }
     if (status === "Replied") {
-      addHistory.run(
+      (await addHistory.run(
         companyId,
         stampDaysAgo(2),
         "reply_logged",
         "email",
         null,
         "Fictional sample reply; no real response was received.",
-      );
+      ));
     } else if (status !== "Sent #1" && status !== "Sent #2" && status !== "Sent #3") {
-      addHistory.run(
+      (await addHistory.run(
         companyId,
         stampDaysAgo(1),
         "status_changed",
         null,
         null,
         `Sample status only: ${status}.`,
-      );
+      ));
     }
   }
 
-  leadDb
+  (await leadDb
     .prepare("INSERT INTO app_meta (key, value) VALUES ('sample_pipeline_seeded', 'true')")
-    .run();
+    .run());
 }
 
-seedSamplePipelineOnce();
 
-export function getSettings() {
-  const rows = leadDb.prepare("SELECT key, value_json FROM settings").all() as {
+export async function getSettings() {
+  const rows = (await leadDb.prepare("SELECT key, value_json FROM settings").all()) as {
     key: string;
     value_json: string;
   }[];
@@ -730,12 +519,12 @@ export function getSettings() {
   return values as typeof DEFAULT_SETTINGS;
 }
 
-export function updateSettings(patch: Record<string, unknown>) {
+export async function updateSettings(patch: Record<string, unknown>) {
   const allowed = new Set(Object.keys(DEFAULT_SETTINGS));
   for (const [key, value] of Object.entries(patch)) {
-    if (allowed.has(key)) setSetting(key, value);
+    if (allowed.has(key)) (await setSetting(key, value));
   }
-  return getSettings();
+  return (await getSettings());
 }
 
 export type CompanyFilters = {
@@ -747,7 +536,7 @@ export type CompanyFilters = {
   showAll?: boolean;
 };
 
-export function listCompanies(filters: CompanyFilters = {}) {
+export async function listCompanies(filters: CompanyFilters = {}) {
   const conditions: string[] = [];
   const values: SQLInputValue[] = [];
   if (!filters.showAll) {
@@ -771,21 +560,21 @@ export function listCompanies(filters: CompanyFilters = {}) {
   if (filters.hasContact === true) conditions.push("(c.source = 'google_places' OR c.phone IS NOT NULL OR c.email IS NOT NULL OR c.whatsapp IS NOT NULL)");
   if (filters.hasContact === false) conditions.push("(c.source = 'google_places' OR (c.phone IS NULL AND c.email IS NULL AND c.whatsapp IS NULL))");
   const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
-  const rows = leadDb
+  const rows = (await leadDb
     .prepare(
       `SELECT ${COMPANY_COLUMNS} FROM companies c ${where}
        ORDER BY c.opportunity_score DESC, c.name COLLATE NOCASE ASC`,
     )
-    .all(...values) as CompanyRow[];
+    .all(...values)) as CompanyRow[];
   return rows.map(toCompany);
 }
 
-export function getCompany(id: number) {
-  const row = leadDb
+export async function getCompany(id: number) {
+  const row = (await leadDb
     .prepare(`SELECT ${COMPANY_COLUMNS} FROM companies c WHERE c.id = ?`)
-    .get(id) as CompanyRow | undefined;
+    .get(id)) as CompanyRow | undefined;
   if (!row) return null;
-  const checks = leadDb
+  const checks = (await leadDb
     .prepare(
       `SELECT checked_at AS checkedAt, website_type AS websiteType,
         psi_mobile_score AS psiMobileScore, lcp_seconds AS lcpSeconds,
@@ -793,7 +582,8 @@ export function getCompany(id: number) {
         has_tel_link AS hasTelLink, has_whatsapp_link AS hasWhatsappLink,
         has_contact_form AS hasContactForm, has_contact_page AS hasContactPage,
         site_builder AS siteBuilder,
-        design_score AS designScore, design_reason AS designReason,
+      design_score AS designScore, design_reason AS designReason,
+      ai_model AS aiModel, ai_generated_at AS aiGeneratedAt,
         design_status AS designStatus,
         cta_obvious AS ctaObvious, retry_count AS retryCount,
         check_status AS checkStatus, last_error AS lastError,
@@ -803,19 +593,19 @@ export function getCompany(id: number) {
           THEN '/api/companies/' || company_id || '/screenshots/mobile' END AS screenshotMobileUrl
        FROM checks WHERE company_id = ? ORDER BY checked_at DESC`,
     )
-    .all(id);
-  const activity = listActivity({ companyId: id, limit: 50 });
-  const outreach = leadDb
+    .all(id));
+  const activity = (await listActivity({ companyId: id, limit: 50 }));
+  const outreach = (await leadDb
     .prepare(
       `SELECT id, channel, sequence_no AS sequenceNo, subject, body, sent_at AS sentAt,
         replied_at AS repliedAt, result, next_followup_at AS nextFollowupAt
        FROM outreach WHERE company_id = ? ORDER BY id DESC`,
     )
-    .all(id);
+    .all(id));
   return { ...toCompany(row), checks, activity, outreach };
 }
 
-export function createCompany(input: Record<string, unknown>) {
+export async function createCompany(input: Record<string, unknown>) {
   const now = nowIso();
   const placeId = `manual:${randomUUID()}`;
   const suppliedReasons = Array.isArray(input.reasons)
@@ -824,7 +614,7 @@ export function createCompany(input: Record<string, unknown>) {
   const observation = typeof input.findingType === "string" ? input.findingType.trim() : "";
   const reasons = suppliedReasons.length ? suppliedReasons : observation ? [observation] : [];
   const findingType = observation ? "manual" : null;
-  const result = leadDb
+  const result = (await leadDb
     .prepare(
       `INSERT INTO companies (
         place_id, name, address, area, keyword, phone, website_url, rating,
@@ -846,10 +636,10 @@ export function createCompany(input: Record<string, unknown>) {
       findingType,
       now,
       now,
-    );
+    ));
   const id = Number(result.lastInsertRowid);
-  addActivity(id, "status_changed", null, null, "Company added manually.");
-  return getCompany(id);
+  (await addActivity(id, "status_changed", null, null, "Company added manually."));
+  return (await getCompany(id));
 }
 
 export type GooglePlaceInput = {
@@ -858,11 +648,11 @@ export type GooglePlaceInput = {
   keyword: string;
 };
 
-export function upsertGooglePlace(input: GooglePlaceInput) {
+export async function upsertGooglePlace(input: GooglePlaceInput) {
   const placeId = `google:${input.placeId.replace(/^google:/, "")}`;
   const now = nowIso();
-  const existing = leadDb.prepare("SELECT id FROM companies WHERE place_id = ?").get(placeId) as { id: number } | undefined;
-  leadDb.prepare(`
+  const existing = (await leadDb.prepare("SELECT id FROM companies WHERE place_id = ?").get(placeId)) as { id: number } | undefined;
+  (await leadDb.prepare(`
     INSERT INTO companies (
       place_id, name, address, area, keyword, fetched_at, created_at, source,
       google_updated_at, rating_available, value_score_method, value_score_base,
@@ -880,8 +670,8 @@ export function upsertGooglePlace(input: GooglePlaceInput) {
     now,
     now,
     now,
-  );
-  const row = leadDb.prepare("SELECT id FROM companies WHERE place_id = ?").get(placeId) as { id: number };
+  ));
+  const row = (await leadDb.prepare("SELECT id FROM companies WHERE place_id = ?").get(placeId)) as { id: number };
   return { id: Number(row.id), isNew: !existing };
 }
 
@@ -905,29 +695,44 @@ export function calculateLiveGoogleValue(input: { keyword: string; rating?: numb
     return { valueScore: score, valueScoreMethod: `${method} (live only)`, valueScoreDetails: details };
 }
 
-export function recordGooglePlacesRequest(keyword: string, area: string) {
-  leadDb.prepare(`
-    INSERT INTO searches (keyword, area, ran_at, api_calls, results_count, provider)
-    VALUES (?, ?, ?, 1, 0, 'google_places')
-  `).run(keyword, area, nowIso());
+export async function recordGooglePlacesRequest(keyword: string, area: string, kind: "search" | "details" = "search") {
+  (await leadDb.prepare(`
+    INSERT INTO searches (keyword, area, ran_at, api_calls, results_count, provider, request_kind)
+    VALUES (?, ?, ?, 1, 0, 'google_places', ?)
+  `).run(keyword, area, nowIso(), kind));
 }
 
-export function recordGeminiRequest() {
-  leadDb.prepare("INSERT INTO ai_api_usage (requested_at) VALUES (?)").run(nowIso());
+export async function recordGeminiRequest() {
+  (await leadDb.prepare("INSERT INTO ai_api_usage (requested_at) VALUES (?)").run(nowIso()));
 }
 
-export function markGoogleLiveLookup(id: number) {
+export async function markGoogleLiveLookup(id: number) {
   const now = nowIso();
-  leadDb.prepare("UPDATE companies SET google_updated_at = ? WHERE id = ?").run(now, id);
+  (await leadDb.prepare("UPDATE companies SET google_updated_at = ? WHERE id = ?").run(now, id));
   return now;
 }
 
-export function deleteSampleData() {
-  const deletedCompanies = Number(
-    (leadDb.prepare("SELECT COUNT(*) AS count FROM companies WHERE is_sample_data = 1").get() as { count: number }).count,
-  );
-  leadDb.prepare("DELETE FROM companies WHERE is_sample_data = 1").run();
-  return { deletedCompanies };
+export async function deleteSampleData() {
+  return withAllData(() => withTransaction(async () => {
+    const row = await leadDb.prepare("SELECT COUNT(*) AS count FROM companies WHERE source = 'demo'").get();
+    await leadDb.prepare("DELETE FROM companies WHERE source = 'demo'").run();
+    for (const table of ["outreach", "activity", "checks", "searches", "research_jobs", "ai_api_usage"]) {
+      await leadDb.prepare(`DELETE FROM ${table} WHERE is_demo = 1`).run();
+    }
+    await leadDb.prepare("DELETE FROM app_meta WHERE key = 'sample_pipeline_seeded'").run();
+    return { deletedCompanies: Number(row?.count ?? 0) };
+  }));
+}
+
+export async function loadDemoData() {
+  return withDataMode(true, () => withTransaction(async () => {
+    // Serialise explicit loads so double-clicks cannot create a partial fixture.
+    await leadDb.prepare("SELECT pg_advisory_xact_lock(4170624)").get();
+    await seedSampleCompanies();
+    await seedSamplePipelineOnce();
+    const row = await leadDb.prepare("SELECT COUNT(*) AS count FROM companies").get();
+    return { companies: Number(row?.count ?? 0) };
+  }));
 }
 
 export type WebsiteCheckInput = {
@@ -954,11 +759,11 @@ export type WebsiteCheckInput = {
   whatsapp: string | null;
 };
 
-export function saveWebsiteCheck(companyId: number, input: WebsiteCheckInput) {
+export async function saveWebsiteCheck(companyId: number, input: WebsiteCheckInput) {
   const now = nowIso();
-  const company = leadDb.prepare("SELECT value_score FROM companies WHERE id = ?").get(companyId) as { value_score: number } | undefined;
+  const company = (await leadDb.prepare("SELECT value_score FROM companies WHERE id = ?").get(companyId)) as { value_score: number } | undefined;
   if (!company) return false;
-  leadDb.prepare(`
+  (await leadDb.prepare(`
     UPDATE companies SET
       email = COALESCE(?, email),
       whatsapp = COALESCE(?, whatsapp),
@@ -977,9 +782,9 @@ export function saveWebsiteCheck(companyId: number, input: WebsiteCheckInput) {
     input.findingType,
     now,
     companyId,
-  );
+  ));
   const designStatus = input.screenshotDesktopPath && input.screenshotMobilePath ? "pending" : "unavailable";
-  leadDb.prepare(`
+  (await leadDb.prepare(`
     INSERT INTO checks (
       company_id, checked_at, website_type, psi_mobile_score, lcp_seconds,
       https, has_viewport, copyright_year, has_tel_link, has_whatsapp_link,
@@ -1009,20 +814,20 @@ export function saveWebsiteCheck(companyId: number, input: WebsiteCheckInput) {
     input.lastError,
     input.screenshotDesktopPath,
     input.screenshotMobilePath,
-  );
+  ));
   return true;
 }
 
-export function getLatestDesignScreenshotPaths(companyId: number) {
-  const row = leadDb.prepare(`
+export async function getLatestDesignScreenshotPaths(companyId: number) {
+  const row = (await leadDb.prepare(`
     SELECT screenshot_desktop_path AS desktopPath, screenshot_mobile_path AS mobilePath
     FROM checks WHERE company_id = ? ORDER BY checked_at DESC, id DESC LIMIT 1
-  `).get(companyId) as { desktopPath: string | null; mobilePath: string | null } | undefined;
+  `).get(companyId)) as { desktopPath: string | null; mobilePath: string | null } | undefined;
   if (!row?.desktopPath || !row.mobilePath) return null;
   return { desktopPath: row.desktopPath, mobilePath: row.mobilePath };
 }
 
-export function updateLatestDesignResult(input: {
+export async function updateLatestDesignResult(input: {
   companyId: number;
   status: "pending" | "completed" | "failed" | "unavailable";
   score?: number | null;
@@ -1030,10 +835,10 @@ export function updateLatestDesignResult(input: {
   reasons?: string[];
   message?: string | null;
 }) {
-  const check = leadDb.prepare(`
+  const check = (await leadDb.prepare(`
     SELECT id, website_problem_score AS websiteProblemScore
     FROM checks WHERE company_id = ? ORDER BY checked_at DESC, id DESC LIMIT 1
-  `).get(input.companyId) as { id: number; websiteProblemScore: number } | undefined;
+  `).get(input.companyId)) as { id: number; websiteProblemScore: number } | undefined;
   if (!check) return false;
   const score = input.status === "completed" ? Number(input.score ?? 0) : null;
   const ctaObvious = input.status === "completed" && typeof input.ctaObvious === "boolean"
@@ -1042,16 +847,20 @@ export function updateLatestDesignResult(input: {
   const reason = input.reasons?.length
     ? input.reasons.slice(0, 3).join(" ")
     : input.message ?? null;
-  leadDb.prepare(`
-    UPDATE checks SET design_score = ?, design_reason = ?, cta_obvious = ?, design_status = ?
+  (await leadDb.prepare(`
+    UPDATE checks SET design_score = ?, design_reason = ?, cta_obvious = ?, design_status = ?,
+      ai_model = ?, ai_generated_at = ?
     WHERE id = ?
-  `).run(score, reason, ctaObvious, input.status, check.id);
+  `).run(score, reason, ctaObvious, input.status, input.status === "completed" ? MODEL : null, input.status === "completed" ? nowIso() : null, check.id));
+  if (input.status === "completed") {
+    await leadDb.prepare("UPDATE companies SET ai_model = ?, ai_generated_at = ? WHERE id = ?").run(MODEL, nowIso(), input.companyId);
+  }
   const websiteScore = Number(check.websiteProblemScore) || 0;
   const problemScore = input.status === "completed"
     ? Math.min(70, websiteScore + Math.round((score ?? 0) / 5))
     : websiteScore;
   if (input.status === "completed" && input.reasons?.length) {
-    const company = leadDb.prepare("SELECT reasons_json FROM companies WHERE id = ?").get(input.companyId) as { reasons_json: string } | undefined;
+    const company = (await leadDb.prepare("SELECT reasons_json FROM companies WHERE id = ?").get(input.companyId)) as { reasons_json: string } | undefined;
     let existingReasons: string[] = [];
     try {
       const parsed: unknown = JSON.parse(company?.reasons_json ?? "[]");
@@ -1060,23 +869,23 @@ export function updateLatestDesignResult(input: {
       existingReasons = [];
     }
     const combined = [...existingReasons, ...input.reasons].filter((item, index, items) => items.indexOf(item) === index).slice(0, 3);
-    leadDb.prepare("UPDATE companies SET reasons_json = ? WHERE id = ?").run(JSON.stringify(combined), input.companyId);
+    (await leadDb.prepare("UPDATE companies SET reasons_json = ? WHERE id = ?").run(JSON.stringify(combined), input.companyId));
   }
-  leadDb.prepare(`
+  (await leadDb.prepare(`
     UPDATE companies SET problem_score = ?, opportunity_score = value_score + ? WHERE id = ?
-  `).run(problemScore, problemScore, input.companyId);
+  `).run(problemScore, problemScore, input.companyId));
   return true;
 }
 
-export function getCompanyScreenshotPath(companyId: number, variant: "desktop" | "mobile") {
+export async function getCompanyScreenshotPath(companyId: number, variant: "desktop" | "mobile") {
   const column = variant === "desktop" ? "screenshot_desktop_path" : "screenshot_mobile_path";
-  const row = leadDb.prepare(
+  const row = (await leadDb.prepare(
     `SELECT ${column} AS screenshotPath FROM checks WHERE company_id = ? AND ${column} IS NOT NULL ORDER BY checked_at DESC LIMIT 1`,
-  ).get(companyId) as { screenshotPath: string } | undefined;
+  ).get(companyId)) as { screenshotPath: string } | undefined;
   return row?.screenshotPath ?? null;
 }
 
-export function updateCompany(id: number, patch: Record<string, unknown>) {
+export async function updateCompany(id: number, patch: Record<string, unknown>) {
   const allowed: Record<string, string> = {
     firstName: "first_name",
     email: "email",
@@ -1087,48 +896,48 @@ export function updateCompany(id: number, patch: Record<string, unknown>) {
   if (entries.length) {
     const assignments = entries.map(([key]) => `${allowed[key]} = ?`).join(", ");
     const values = entries.map(([, value]) => (value === "" ? null : value as SQLInputValue));
-    leadDb.prepare(`UPDATE companies SET ${assignments} WHERE id = ?`).run(...values, id);
+    (await leadDb.prepare(`UPDATE companies SET ${assignments} WHERE id = ?`).run(...values, id));
   }
-  return getCompany(id);
+  return (await getCompany(id));
 }
 
-export function updateCompanyStatus(id: number, status: string) {
-  const existing = getCompany(id);
+export async function updateCompanyStatus(id: number, status: string) {
+  const existing = (await getCompany(id));
   if (!existing) return null;
   if (existing.isDoNotContact && status !== "Do not contact") {
     throw new Error("Do not contact is permanent and cannot be changed.");
   }
-  leadDb.prepare("UPDATE companies SET status = ? WHERE id = ?").run(status, id);
-  addActivity(id, "status_changed", null, null, `Status changed to ${status}.`);
-  return getCompany(id);
+  (await leadDb.prepare("UPDATE companies SET status = ? WHERE id = ?").run(status, id));
+  (await addActivity(id, "status_changed", null, null, `Status changed to ${status}.`));
+  return (await getCompany(id));
 }
 
-export function markDoNotContact(id: number) {
-  const existing = getCompany(id);
+export async function markDoNotContact(id: number) {
+  const existing = (await getCompany(id));
   if (!existing) return null;
-  leadDb.prepare("UPDATE companies SET status = 'Do not contact' WHERE id = ?").run(id);
-  leadDb
+  (await leadDb.prepare("UPDATE companies SET status = 'Do not contact' WHERE id = ?").run(id));
+  (await leadDb
     .prepare("UPDATE outreach SET result = 'do_not_contact', next_followup_at = NULL WHERE company_id = ?")
-    .run(id);
-  addActivity(id, "marked_do_not_contact", null, null, "Do not contact set permanently.");
-  return getCompany(id);
+    .run(id));
+  (await addActivity(id, "marked_do_not_contact", null, null, "Do not contact set permanently."));
+  return (await getCompany(id));
 }
 
-export function addActivity(
+export async function addActivity(
   companyId: number,
   action: string,
   channel: string | null,
   sequenceNo: number | null,
   note: string,
 ) {
-  leadDb
+  (await leadDb
     .prepare(
       "INSERT INTO activity (company_id, timestamp, action, channel, sequence_no, note) VALUES (?, ?, ?, ?, ?, ?)",
     )
-    .run(companyId, nowIso(), action, channel, sequenceNo, note);
+    .run(companyId, nowIso(), action, channel, sequenceNo, note));
 }
 
-export function listActivity(filters: {
+export async function listActivity(filters: {
   search?: string;
   action?: string;
   channel?: string;
@@ -1161,14 +970,14 @@ export function listActivity(filters: {
   }
   const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
   const limit = Math.min(Math.max(filters.limit ?? 500, 1), 1000);
-  return leadDb
+  return (await leadDb
     .prepare(
       `SELECT a.id, a.company_id AS companyId, c.name AS companyName, a.timestamp,
         a.action, a.channel, a.sequence_no AS sequenceNo, a.note
        FROM activity a JOIN companies c ON c.id = a.company_id
        ${where} ORDER BY a.timestamp DESC LIMIT ?`,
     )
-    .all(...values, limit);
+    .all(...values, limit));
 }
 
 function csvCell(value: unknown) {
@@ -1181,8 +990,8 @@ function toCsv(headers: string[], rows: unknown[][]) {
   return `\uFEFF${[headers, ...rows].map((row) => row.map(csvCell).join(",")).join("\r\n")}`;
 }
 
-export function exportCompaniesCsv() {
-  const rows = leadDb.prepare(`
+export async function exportCompaniesCsv() {
+  const rows = (await leadDb.prepare(`
     SELECT place_id AS placeId, name, area, keyword, address, phone, website_url AS websiteUrl,
       maps_url AS mapsUrl, rating, review_count AS reviewCount, price_level AS priceLevel,
       email, whatsapp, status, value_score AS valueScore,
@@ -1190,7 +999,7 @@ export function exportCompaniesCsv() {
       finding_type AS findingType, reasons_json AS reasonsJson, source,
       google_updated_at AS googleUpdatedAt, is_sample_data AS isSampleData
     FROM companies ORDER BY opportunity_score DESC, name COLLATE NOCASE ASC
-  `).all() as Array<Record<string, unknown>>;
+  `).all()) as Array<Record<string, unknown>>;
   return toCsv(
     ["Place ID", "Name", "Area", "Category", "Address", "Phone", "Website", "Maps URL", "Rating", "Review count", "Price level", "Email", "WhatsApp", "Status", "Value score", "Problem score", "Opportunity score", "Finding type", "Top reasons", "Source", "Google updated at", "Fictional sample"],
     rows.map((row) => {
@@ -1207,22 +1016,22 @@ export function exportCompaniesCsv() {
         google ? "" : row.mapsUrl, google ? "" : row.rating, google ? "" : row.reviewCount, google ? "" : row.priceLevel, row.email,
         row.whatsapp, row.status, google ? "" : row.valueScore, row.problemScore,
         google ? "" : row.opportunityScore, row.findingType, reasons, row.source,
-        row.googleUpdatedAt, Number(row.isSampleData) === 1 ? "yes" : "no",
+        row.googleUpdatedAt, row.source === "demo" ? "yes" : "no",
       ];
     }),
   );
 }
 
-export function exportOutreachCsv() {
-  const rows = leadDb.prepare(`
+export async function exportOutreachCsv() {
+  const rows = (await leadDb.prepare(`
     SELECT c.place_id AS placeId, c.source, c.name AS companyName, c.area, o.channel, o.sequence_no AS sequenceNo,
       o.subject, o.body, o.sent_at AS sentAt, o.replied_at AS repliedAt,
       o.result, o.next_followup_at AS nextFollowupAt
     FROM outreach o JOIN companies c ON c.id = o.company_id
     ORDER BY COALESCE(o.sent_at, '') DESC, c.name COLLATE NOCASE ASC
-  `).all() as Array<Record<string, unknown>>;
+  `).all()) as Array<Record<string, unknown>>;
   return toCsv(
-    ["Place ID", "Company", "Area", "Channel", "Sequence", "Subject", "Body", "Sent at", "Reply received at", "Result", "Next follow-up at"],
+    ["Place ID", "Company", "Area", "Channel", "Sequence", "Subject", "Body", "Marked sent at (self-reported)", "Reply logged at (self-reported)", "Result (self-reported)", "Next follow-up at"],
     rows.map((row) => [
       row.placeId, row.source === "google_places" ? "" : row.companyName, row.area, row.channel, row.sequenceNo, row.subject,
       row.body, row.sentAt, row.repliedAt, row.result, row.nextFollowupAt,
@@ -1230,9 +1039,9 @@ export function exportOutreachCsv() {
   );
 }
 
-export function listFollowups() {
+export async function listFollowups() {
   const through = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
-  return leadDb
+  return (await leadDb
     .prepare(
       `SELECT o.company_id AS companyId, c.name AS companyName, c.area,
         o.sequence_no AS sequenceNo, o.channel, o.next_followup_at AS dueAt,
@@ -1243,7 +1052,7 @@ export function listFollowups() {
          AND o.next_followup_at <= ?
        ORDER BY o.next_followup_at ASC LIMIT 500`,
     )
-    .all(through);
+    .all(through));
 }
 
 function malaysiaDate() {
@@ -1255,85 +1064,89 @@ function malaysiaDate() {
   }).format(new Date());
 }
 
-function countSentToday(channel: "email" | "whatsapp") {
+async function countSentToday(channel: "email" | "whatsapp") {
   return Number(
     (
-      leadDb
+      (await leadDb
         .prepare(
           `SELECT COUNT(*) AS count FROM outreach
            WHERE channel = ? AND sent_at IS NOT NULL
              AND strftime('%Y-%m-%d', sent_at, '+8 hours') = ?`,
         )
-        .get(channel, malaysiaDate()) as { count: number }
+        .get(channel, malaysiaDate())) as { count: number }
     ).count,
   );
 }
 
-export function getDashboard() {
-  const settings = getSettings();
-  const count = (sql: string, ...args: SQLInputValue[]) =>
-    Number((leadDb.prepare(sql).get(...args) as { count: number }).count);
-  const totalCompanies = count("SELECT COUNT(*) AS count FROM companies");
-  const contacted = count("SELECT COUNT(DISTINCT company_id) AS count FROM outreach WHERE sent_at IS NOT NULL");
-  const replies = count("SELECT COUNT(DISTINCT company_id) AS count FROM outreach WHERE replied_at IS NOT NULL");
-  const sentWhatsApp = count("SELECT COUNT(*) AS count FROM outreach WHERE channel = 'whatsapp' AND sent_at IS NOT NULL");
-  const statusCount = (status: string) => count("SELECT COUNT(*) AS count FROM companies WHERE status = ?", status);
-  const byStatus = leadDb
+export async function getDashboard() {
+  const settings = (await getSettings());
+  const count = async (sql: string, ...args: SQLInputValue[]) =>
+    Number(((await leadDb.prepare(sql).get(...args)) as { count: number }).count);
+  const totalCompanies = (await count("SELECT COUNT(*) AS count FROM companies"));
+  const contacted = (await count("SELECT COUNT(DISTINCT company_id) AS count FROM outreach WHERE sent_at IS NOT NULL"));
+  const replies = (await count("SELECT COUNT(DISTINCT company_id) AS count FROM outreach WHERE replied_at IS NOT NULL"));
+  const sentWhatsApp = (await count("SELECT COUNT(*) AS count FROM outreach WHERE channel = 'whatsapp' AND sent_at IS NOT NULL"));
+  const statusCount = async (status: string) => (await count("SELECT COUNT(*) AS count FROM companies WHERE status = ?", status));
+  const byStatus = (await leadDb
     .prepare("SELECT status, COUNT(*) AS count FROM companies GROUP BY status ORDER BY count DESC")
-    .all();
-  const bySequence = leadDb
+    .all());
+  const bySequence = (await leadDb
     .prepare(
       "SELECT sequence_no AS sequenceNo, COUNT(*) AS count FROM outreach WHERE channel = 'email' AND sent_at IS NOT NULL GROUP BY sequence_no ORDER BY sequence_no",
     )
-    .all();
-  const googlePlacesRequestsCount = count(
+    .all());
+  const googlePlacesRequestsCount = (await count(
     "SELECT COALESCE(SUM(api_calls), 0) AS count FROM searches WHERE provider = 'google_places' AND substr(ran_at, 1, 7) = ?",
     malaysiaDate().slice(0, 7),
-  );
-  const replyRatesByFindingType = leadDb.prepare(`
+  ));
+  const replyRatesByFindingType = (await leadDb.prepare(`
     SELECT COALESCE(NULLIF(o.finding_type_at_send, ''), NULLIF(c.finding_type, ''), 'unclassified') AS findingType,
-      COUNT(*) AS sent,
-      SUM(CASE WHEN o.replied_at IS NOT NULL THEN 1 ELSE 0 END) AS replied
+      COUNT(DISTINCT o.company_id) AS sent,
+      COUNT(DISTINCT CASE WHEN o.replied_at IS NOT NULL THEN o.company_id END) AS replied
     FROM outreach o JOIN companies c ON c.id = o.company_id
     WHERE o.sent_at IS NOT NULL
     GROUP BY COALESCE(NULLIF(o.finding_type_at_send, ''), NULLIF(c.finding_type, ''), 'unclassified')
     ORDER BY sent DESC, findingType ASC
-  `).all() as Array<{ findingType: string; sent: number; replied: number }>;
-  const replyRatesByChannel = leadDb.prepare(`
-    SELECT channel, COUNT(*) AS sent,
-      SUM(CASE WHEN replied_at IS NOT NULL THEN 1 ELSE 0 END) AS replied
+  `).all()) as Array<{ findingType: string; sent: number; replied: number }>;
+  const replyRatesByChannel = (await leadDb.prepare(`
+    SELECT channel, COUNT(DISTINCT company_id) AS sent,
+      COUNT(DISTINCT CASE WHEN replied_at IS NOT NULL THEN company_id END) AS replied
     FROM outreach
     WHERE sent_at IS NOT NULL
     GROUP BY channel
     ORDER BY sent DESC, channel ASC
-  `).all() as Array<{ channel: string; sent: number; replied: number }>;
+  `).all()) as Array<{ channel: string; sent: number; replied: number }>;
   const withRates = <T extends { sent: number; replied: number }>(rows: T[]) =>
     rows.map((row) => ({
       ...row,
-      replyRate: row.sent ? Math.round((row.replied / row.sent) * 1000) / 10 : 0,
+      sent: Number(row.sent),
+      replied: Number(row.replied),
+      replyRate: row.sent && row.replied ? Math.round((row.replied / row.sent) * 1000) / 10 : null,
     }));
   return {
     totals: {
       companies: totalCompanies,
       contacted,
       replies,
-      replyRate: contacted ? Math.round((replies / contacted) * 1000) / 10 : 0,
-      wantsHero: statusCount("Wants hero"),
-      heroSent: statusCount("Hero sent"),
-      won: statusCount("Won"),
+      replyRate: contacted && replies ? Math.round((replies / contacted) * 1000) / 10 : null,
+      wantsHero: (await statusCount("Wants hero")),
+      heroSent: (await statusCount("Hero sent")),
+      won: (await statusCount("Won")),
       whatsappSent: sentWhatsApp,
     },
-    sentToday: { email: countSentToday("email"), whatsapp: countSentToday("whatsapp") },
+    sentToday: { email: (await countSentToday("email")), whatsapp: (await countSentToday("whatsapp")) },
     limits: {
       email: Number(settings.emailDailyLimit),
       whatsapp: Number(settings.whatsappDailyLimit),
     },
-    byStatus,
-    bySequence,
+    byStatus: byStatus.map(row => ({ ...row, count: Number(row.count) })),
+    bySequence: bySequence.map(row => ({ ...row, count: Number(row.count) })),
     googlePlacesRequestsCount,
-    aiCallsToday: count("SELECT COUNT(*) AS count FROM ai_api_usage WHERE strftime('%Y-%m-%d', requested_at, '+8 hours') = ?", malaysiaDate()),
-    replyRatesByFindingType: withRates(replyRatesByFindingType),
-    replyRatesByChannel: withRates(replyRatesByChannel),
+    googleSearchRequestsCount: await count("SELECT COALESCE(SUM(api_calls),0) AS count FROM searches WHERE provider='google_places' AND request_kind='search' AND substr(ran_at,1,7)=?", malaysiaDate().slice(0,7)),
+    googleDetailsRequestsCount: await count("SELECT COALESCE(SUM(api_calls),0) AS count FROM searches WHERE provider='google_places' AND request_kind='details' AND substr(ran_at,1,7)=?", malaysiaDate().slice(0,7)),
+    aiCallsToday: (await count("SELECT COUNT(*) AS count FROM ai_api_usage WHERE strftime('%Y-%m-%d', requested_at, '+8 hours') = ?", malaysiaDate())),
+    replyRatesByFindingType: contacted >= 10 ? withRates(replyRatesByFindingType) : [],
+    replyRatesByChannel: contacted >= 10 ? withRates(replyRatesByChannel) : [],
   };
 }
 
@@ -1383,7 +1196,7 @@ function validateAiDraft(
 }
 
 export async function generateDraft(id: number, liveName?: string) {
-  const company = getCompany(id);
+  const company = (await getCompany(id));
   if (!company) return { error: "Company not found." } as const;
   if (company.source === "google_places" && !liveName) return { error: "Load live Google details before drafting." } as const;
   if (liveName) company.name = liveName;
@@ -1391,7 +1204,7 @@ export async function generateDraft(id: number, liveName?: string) {
   if (!company.findingType || company.reasons.length === 0) {
     return { error: "Need a real finding first." } as const;
   }
-  const settings = getSettings();
+  const settings = (await getSettings());
   if (!settings.myWhatsapp) {
     return { error: "Add your WhatsApp number in Settings before generating a draft." } as const;
   }
@@ -1440,7 +1253,7 @@ export async function generateDraft(id: number, liveName?: string) {
   const greeting = company.firstName.trim() ? `Hi ${company.firstName.trim()},` : "Hi there,";
   const subject = `Quick note about ${company.name}'s website`;
   const sourceIntro =
-    company.source === "openstreetmap"
+    company.osmId
       ? `${company.name} was listed on OpenStreetMap.`
       : company.source === "google_places"
         ? `${company.name} was listed on Google Places.`
@@ -1464,6 +1277,7 @@ WhatsApp: ${settings.myWhatsapp}`;
   let finalDraft = { subject, emailBody, whatsappBody };
   let draftMode: "gemini" | "template" = "template";
   try {
+    if (inDemoMode()) throw new Error("Demo drafts use the local template; no external AI call.");
     const aiDraft = await generateOutreachDraft({
       companyName: company.name,
       area: company.area,
@@ -1478,6 +1292,7 @@ WhatsApp: ${settings.myWhatsapp}`;
     if (validateAiDraft(aiDraft, company.name, finding)) {
       finalDraft = aiDraft;
       draftMode = "gemini";
+      await leadDb.prepare("UPDATE companies SET ai_model = ?, ai_generated_at = ? WHERE id = ?").run(MODEL, nowIso(), id);
     }
   } catch {
     // Keep the plain, fact-based template when Gemini is unavailable.
@@ -1485,7 +1300,7 @@ WhatsApp: ${settings.myWhatsapp}`;
   if (countWords(finalDraft.emailBody) >= 100 || countWords(finalDraft.whatsappBody) >= 100) {
     return { error: "The finding or sender details are too long for a draft under 100 words. Shorten them and try again." } as const;
   }
-  addActivity(
+  (await addActivity(
     id,
     "generated",
     null,
@@ -1493,41 +1308,42 @@ WhatsApp: ${settings.myWhatsapp}`;
     draftMode === "gemini"
       ? "Generated Gemini drafts and passed content validation."
       : "Gemini was unavailable or its draft failed validation; generated the plain template.",
-  );
+  ));
   return {
     ...finalDraft,
     finding,
     canOpenWhatsapp: Boolean(company.whatsapp),
     draftMode,
+    aiModel: draftMode === "gemini" ? MODEL : null,
   };
 }
 
-export function logCopiedMessage(id: number, channel: "email" | "whatsapp") {
-  const company = getCompany(id);
+export async function logCopiedMessage(id: number, channel: "email" | "whatsapp") {
+  const company = (await getCompany(id));
   if (!company) return null;
   if (company.isDoNotContact) throw new Error("Do not contact is permanent.");
-  addActivity(
+  (await addActivity(
     id,
     channel === "email" ? "copied_email" : "copied_whatsapp",
     channel,
     null,
     `Copied ${channel} draft.`,
-  );
+  ));
   if (company.status === "New") {
-    leadDb.prepare("UPDATE companies SET status = 'Claimed' WHERE id = ?").run(id);
+    (await leadDb.prepare("UPDATE companies SET status = 'Claimed' WHERE id = ?").run(id));
   }
   return { ok: true };
 }
 
-export function markMessageSent(
+export async function markMessageSent(
   id: number,
   input: { channel: "email" | "whatsapp"; sequenceNo: number; subject?: string; body: string },
 ) {
-  const company = getCompany(id);
+  const company = (await getCompany(id));
   if (!company) return { error: "Company not found." } as const;
   if (company.isDoNotContact) return { error: "Do not contact is permanent." } as const;
-  const settings = getSettings();
-  const sentToday = countSentToday(input.channel);
+  const settings = (await getSettings());
+  const sentToday = (await countSentToday(input.channel));
   const dailyLimit = Number(
     input.channel === "email" ? settings.emailDailyLimit : settings.whatsappDailyLimit,
   );
@@ -1542,31 +1358,31 @@ export function markMessageSent(
   }
   const now = nowIso();
   if (input.channel === "email" && input.sequenceNo > 1) {
-    leadDb
+    (await leadDb
       .prepare(
         `UPDATE outreach SET result = 'followed_up', next_followup_at = NULL
          WHERE company_id = ? AND channel = 'email' AND sequence_no = ? AND result IS NULL`,
       )
-      .run(id, input.sequenceNo - 1);
+      .run(id, input.sequenceNo - 1));
   }
   let nextFollowupAt: string | null = null;
   if (input.channel === "email" && input.sequenceNo < 3) {
-    const firstSent = leadDb
+    const firstSent = (await leadDb
       .prepare(
         "SELECT sent_at AS sentAt FROM outreach WHERE company_id = ? AND channel = 'email' AND sequence_no = 1 AND sent_at IS NOT NULL",
       )
-      .get(id) as { sentAt: string } | undefined;
+      .get(id)) as { sentAt: string } | undefined;
     const anchor = firstSent ? new Date(firstSent.sentAt) : new Date(now);
     const days = input.sequenceNo === 1 ? Number(settings.followup1Days) : Number(settings.followup2Days);
     anchor.setUTCDate(anchor.getUTCDate() + days);
     nextFollowupAt = anchor.toISOString();
   }
-  leadDb
+  (await leadDb
     .prepare(
       `INSERT INTO outreach (company_id, channel, sequence_no, subject, body, sent_at, next_followup_at, finding_type_at_send)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     )
-    .run(id, input.channel, input.sequenceNo, input.subject ?? null, input.body, now, nextFollowupAt, company.findingType);
+    .run(id, input.channel, input.sequenceNo, input.subject ?? null, input.body, now, nextFollowupAt, company.findingType));
   const nextStatus =
     input.channel === "email"
       ? input.sequenceNo >= 3
@@ -1575,37 +1391,37 @@ export function markMessageSent(
       : company.status === "New" || company.status === "Claimed"
         ? "Sent #1"
         : company.status;
-  leadDb.prepare("UPDATE companies SET status = ? WHERE id = ?").run(nextStatus, id);
-  addActivity(
+  (await leadDb.prepare("UPDATE companies SET status = ? WHERE id = ?").run(nextStatus, id));
+  (await addActivity(
     id,
     "marked_sent",
     input.channel,
     input.sequenceNo,
     `Manually marked ${input.channel} #${input.sequenceNo} as sent.`,
-  );
-  return getCompany(id);
+  ));
+  return (await getCompany(id));
 }
 
-export function logReply(id: number, note: string) {
-  const company = getCompany(id);
+export async function logReply(id: number, note: string) {
+  const company = (await getCompany(id));
   if (!company) return null;
   const now = nowIso();
-  const latest = leadDb
+  const latest = (await leadDb
     .prepare(
       "SELECT id FROM outreach WHERE company_id = ? AND sent_at IS NOT NULL ORDER BY sent_at DESC LIMIT 1",
     )
-    .get(id) as { id: number } | undefined;
+    .get(id)) as { id: number } | undefined;
   if (latest) {
-    leadDb
+    (await leadDb
       .prepare("UPDATE outreach SET replied_at = ?, result = 'replied', next_followup_at = NULL WHERE id = ?")
-      .run(now, latest.id);
+      .run(now, latest.id));
   }
-  leadDb
+  (await leadDb
     .prepare(
       "UPDATE outreach SET result = COALESCE(result, 'replied'), next_followup_at = NULL WHERE company_id = ? AND next_followup_at IS NOT NULL",
     )
-    .run(id);
-  leadDb.prepare("UPDATE companies SET status = 'Replied' WHERE id = ?").run(id);
-  addActivity(id, "reply_logged", null, null, note);
-  return getCompany(id);
+    .run(id));
+  (await leadDb.prepare("UPDATE companies SET status = 'Replied' WHERE id = ?").run(id));
+  (await addActivity(id, "reply_logged", null, null, note));
+  return (await getCompany(id));
 }

@@ -22,6 +22,14 @@ export interface Company {
   /** @nullable */
   mapsUrl?: string | null;
   source: CompanySource;
+  automatedCheckStatus?: string;
+  /** @nullable */
+  automatedCheckedAt?: string | null;
+  aiStatus?: string;
+  /** @nullable */
+  aiModel?: string | null;
+  /** @nullable */
+  aiGeneratedAt?: string | null;
   /** @nullable */
   osmType: string | null;
   /** @nullable */

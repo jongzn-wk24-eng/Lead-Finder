@@ -74,9 +74,9 @@ function apiKey() {
   return key;
 }
 
-async function placesRequest(url: string, init: RequestInit, fieldMask: string, onRequest: () => void) {
+async function placesRequest(url: string, init: RequestInit, fieldMask: string, onRequest: () => void | Promise<void>) {
   const key = apiKey();
-  onRequest();
+  await onRequest();
   const response = await fetch(url, {
     ...init,
     headers: {
@@ -103,7 +103,7 @@ async function placesRequest(url: string, init: RequestInit, fieldMask: string, 
 export async function searchGooglePlacesText(
   keyword: string,
   area: string,
-  onRequest: () => void,
+  onRequest: () => void | Promise<void>,
 ): Promise<GooglePlace[]> {
   const data = await placesRequest(
     TEXT_SEARCH_URL,
@@ -122,7 +122,7 @@ export async function searchGooglePlacesText(
   return Array.isArray(data.places) ? data.places.filter((place) => typeof place.id === "string" && place.id) : [];
 }
 
-export async function fetchGooglePlaceDetails(placeId: string, onRequest: () => void) {
+export async function fetchGooglePlaceDetails(placeId: string, onRequest: () => void | Promise<void>) {
   const safeId = placeId.replace(/^google:/, "");
   const data = await placesRequest(
     `https://places.googleapis.com/v1/places/${encodeURIComponent(safeId)}`,

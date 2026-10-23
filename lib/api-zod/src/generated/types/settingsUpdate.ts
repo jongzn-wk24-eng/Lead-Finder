@@ -7,6 +7,7 @@
  */
 
 export interface SettingsUpdate {
+  demoMode?: boolean;
   areas?: string[];
   keywords?: string[];
   /**

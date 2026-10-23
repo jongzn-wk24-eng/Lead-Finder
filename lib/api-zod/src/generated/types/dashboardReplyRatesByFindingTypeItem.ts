@@ -10,5 +10,6 @@ export type DashboardReplyRatesByFindingTypeItem = {
   findingType: string;
   sent: number;
   replied: number;
-  replyRate: number;
+  /** @nullable */
+  replyRate: number | null;
 };

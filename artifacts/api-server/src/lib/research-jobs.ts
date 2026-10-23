@@ -34,12 +34,12 @@ export type ResearchJob = {
 type JobRow = Record<string, unknown>;
 type SearchInput = { areas: string[]; keywords: string[] };
 
-leadDb.prepare(`
+(await leadDb.prepare(`
   UPDATE research_jobs SET status = 'failed', phase = 'failed',
     error = 'The API server restarted before this job finished.',
     current_label = NULL, updated_at = ?
   WHERE status IN ('queued', 'running')
-`).run(new Date().toISOString());
+`).run(new Date().toISOString()));
 
 function asJob(row: JobRow): ResearchJob {
   return {
@@ -62,21 +62,21 @@ function asJob(row: JobRow): ResearchJob {
   };
 }
 
-export function getResearchJob(id: string) {
-  const row = leadDb.prepare("SELECT * FROM research_jobs WHERE id = ?").get(id) as JobRow | undefined;
+export async function getResearchJob(id: string) {
+  const row = (await leadDb.prepare("SELECT * FROM research_jobs WHERE id = ?").get(id)) as JobRow | undefined;
   return row ? asJob(row) : null;
 }
 
-function createResearchJob(kind: ResearchJobKind, total: number, requestsEstimated: number, input: unknown) {
+async function createResearchJob(kind: ResearchJobKind, total: number, requestsEstimated: number, input: unknown) {
   const id = randomUUID();
   const now = new Date().toISOString();
-  leadDb.prepare(`
+  (await leadDb.prepare(`
     INSERT INTO research_jobs (
       id, kind, status, phase, total, completed, requests_estimated, requests_made,
       input_json, created_at, updated_at
     ) VALUES (?, ?, 'queued', 'queued', ?, 0, ?, 0, ?, ?, ?)
-  `).run(id, kind, total, requestsEstimated, JSON.stringify(input), now, now);
-  return getResearchJob(id)!;
+  `).run(id, kind, total, requestsEstimated, JSON.stringify(input), now, now));
+  return (await getResearchJob(id))!;
 }
 
 const jobColumnMap: Record<string, string> = {
@@ -94,45 +94,45 @@ const jobColumnMap: Record<string, string> = {
   error: "error",
 };
 
-function updateResearchJob(id: string, patch: Partial<ResearchJob>) {
+async function updateResearchJob(id: string, patch: Partial<ResearchJob>) {
   const entries = Object.entries(patch).filter(([key]) => key in jobColumnMap);
   if (entries.length) {
     const assignments = entries.map(([key]) => `${jobColumnMap[key]} = ?`).join(", ");
     const values = entries.map(([, value]) => value ?? null);
-    leadDb.prepare(`UPDATE research_jobs SET ${assignments}, updated_at = ? WHERE id = ?`).run(
+    (await leadDb.prepare(`UPDATE research_jobs SET ${assignments}, updated_at = ? WHERE id = ?`).run(
       ...values,
       new Date().toISOString(),
       id,
-    );
+    ));
   }
-  return getResearchJob(id);
+  return (await getResearchJob(id));
 }
 
-export function cancelResearchJob(id: string) {
-  const job = getResearchJob(id);
+export async function cancelResearchJob(id: string) {
+  const job = (await getResearchJob(id));
   if (!job) return null;
   if (job.status === "queued") {
-    leadDb.prepare(`
+    (await leadDb.prepare(`
       UPDATE research_jobs SET status = 'cancelled', phase = 'cancelled',
         cancel_requested = 1, updated_at = ? WHERE id = ?
-    `).run(new Date().toISOString(), id);
+    `).run(new Date().toISOString(), id));
   } else if (job.status === "running") {
-    leadDb.prepare(`
+    (await leadDb.prepare(`
       UPDATE research_jobs SET cancel_requested = 1, phase = 'cancelling',
         updated_at = ? WHERE id = ?
-    `).run(new Date().toISOString(), id);
+    `).run(new Date().toISOString(), id));
   }
-  return getResearchJob(id);
+  return (await getResearchJob(id));
 }
 
-function cancellationRequested(id: string) {
-  const row = leadDb.prepare("SELECT cancel_requested FROM research_jobs WHERE id = ?").get(id) as { cancel_requested: number } | undefined;
+async function cancellationRequested(id: string) {
+  const row = (await leadDb.prepare("SELECT cancel_requested FROM research_jobs WHERE id = ?").get(id)) as { cancel_requested: number } | undefined;
   return !row || Number(row.cancel_requested) === 1;
 }
 
-function incrementRequestCount(id: string) {
-  leadDb.prepare("UPDATE research_jobs SET requests_made = requests_made + 1, updated_at = ? WHERE id = ?")
-    .run(new Date().toISOString(), id);
+async function incrementRequestCount(id: string) {
+  (await leadDb.prepare("UPDATE research_jobs SET requests_made = requests_made + 1, updated_at = ? WHERE id = ?")
+    .run(new Date().toISOString(), id));
 }
 
 let activeWebsiteChecks = 0;
@@ -149,14 +149,14 @@ async function withWebsiteCheckLimit<T>(work: () => Promise<T>): Promise<T> {
   }
 }
 
-function isCheckStale(companyId: number) {
-  const row = leadDb.prepare("SELECT MAX(checked_at) AS checkedAt FROM checks WHERE company_id = ?").get(companyId) as { checkedAt: string | null };
+async function isCheckStale(companyId: number) {
+  const row = (await leadDb.prepare("SELECT MAX(checked_at) AS checkedAt FROM checks WHERE company_id = ?").get(companyId)) as { checkedAt: string | null };
   return !row.checkedAt || Date.now() - new Date(row.checkedAt).getTime() >= 30 * 24 * 60 * 60 * 1000;
 }
 
-function failJob(id: string, error: unknown) {
+async function failJob(id: string, error: unknown) {
   const message = error instanceof Error ? error.message : "Research job failed.";
-  updateResearchJob(id, { status: "failed", phase: "failed", error: message.slice(0, 500), currentLabel: null });
+  (await updateResearchJob(id, { status: "failed", phase: "failed", error: message.slice(0, 500), currentLabel: null }));
   logger.error({ jobId: id, err: error }, "Lead research job failed");
 }
 
@@ -175,11 +175,11 @@ async function runSearchJob(jobId: string, input: SearchInput) {
   const warnings: string[] = [];
   try {
     const pairs = input.areas.flatMap((area) => input.keywords.map((keyword) => ({ area, keyword })));
-    updateResearchJob(jobId, {
+    (await updateResearchJob(jobId, {
       status: "running",
       phase: "searching",
       currentLabel: `Searching ${pairs.length} keyword-area pairs`,
-    });
+    }));
     const found = new Set<number>();
     const livePlaces = new Map<number, GooglePlace>();
     let completedPairs = 0;
@@ -187,21 +187,21 @@ async function runSearchJob(jobId: string, input: SearchInput) {
     let updatedCount = 0;
 
     for (const { area, keyword } of pairs) {
-      if (cancellationRequested(jobId)) break;
-      updateResearchJob(jobId, {
+      if ((await cancellationRequested(jobId))) break;
+      (await updateResearchJob(jobId, {
         phase: "searching",
         currentLabel: `Searching ${keyword} in ${area}`,
-      });
+      }));
       let places: GooglePlace[] = [];
       try {
-        places = await searchGooglePlacesText(keyword, area, () => {
-          incrementRequestCount(jobId);
-          recordGooglePlacesRequest(keyword, area);
+        places = await searchGooglePlacesText(keyword, area, async () => {
+          (await incrementRequestCount(jobId));
+          (await recordGooglePlacesRequest(keyword, area));
         });
         for (const place of places) {
           const listing = listingFromGooglePlace(place, area, keyword);
           if (!listing) continue;
-          const record = upsertGooglePlace(listing);
+          const record = (await upsertGooglePlace(listing));
           livePlaces.set(record.id, place);
           if (!found.has(record.id)) {
             found.add(record.id);
@@ -213,95 +213,96 @@ async function runSearchJob(jobId: string, input: SearchInput) {
         warnings.push(`${keyword} · ${area}: ${error instanceof Error ? error.message : "Google Places search failed."}`);
       }
       completedPairs += 1;
-      updateResearchJob(jobId, {
+      (await updateResearchJob(jobId, {
         completed: completedPairs,
         newCompanies: createdCount,
         updatedCompanies: updatedCount,
         currentLabel: `Finished ${completedPairs} of ${pairs.length} searches; ${found.size} unique businesses found`,
-      });
+      }));
     }
-    if (cancellationRequested(jobId)) {
-      updateResearchJob(jobId, { status: "cancelled", phase: "cancelled", currentLabel: null });
+    if ((await cancellationRequested(jobId))) {
+      (await updateResearchJob(jobId, { status: "cancelled", phase: "cancelled", currentLabel: null }));
       return;
     }
 
     const companyIds = [...found];
-    const idsToCheck = companyIds.filter(isCheckStale);
+    const stale = await Promise.all(companyIds.map(isCheckStale));
+    const idsToCheck = companyIds.filter((_, index) => stale[index]);
     const alreadyChecked = companyIds.length - idsToCheck.length;
-    updateResearchJob(jobId, {
+    (await updateResearchJob(jobId, {
       phase: "checking",
       total: completedPairs + idsToCheck.length,
       skippedCompanies: alreadyChecked,
       currentLabel: idsToCheck.length
         ? `Checking websites and screenshots for ${idsToCheck.length} businesses`
         : "All matching businesses have recent website checks",
-    });
+    }));
 
     let checksFailed = 0;
     let completedChecks = 0;
     let nextIndex = 0;
     const worker = async () => {
       while (nextIndex < idsToCheck.length) {
-        if (cancellationRequested(jobId)) return;
+        if ((await cancellationRequested(jobId))) return;
         const companyId = idsToCheck[nextIndex++]!;
-        const company = getCompany(companyId);
+        const company = (await getCompany(companyId));
         if (!company) {
           completedChecks += 1;
           continue;
         }
-        updateResearchJob(jobId, { currentLabel: `Checking ${company.name}` });
-        const result = await withWebsiteCheckLimit(() => checkCompanyWebsite(companyId, livePlaces.get(companyId)?.websiteUri ?? null));
+        (await updateResearchJob(jobId, { currentLabel: `Checking ${company.name}` }));
+        const result = await withWebsiteCheckLimit(async () => (await checkCompanyWebsite(companyId, livePlaces.get(companyId)?.websiteUri ?? null)));
         if (result.failed) checksFailed += 1;
         completedChecks += 1;
-        updateResearchJob(jobId, {
+        (await updateResearchJob(jobId, {
           completed: completedPairs + completedChecks,
           checksFailed,
           currentLabel: `Checked ${completedChecks} of ${idsToCheck.length} businesses`,
-        });
+        }));
       }
     };
     await Promise.all([worker(), worker()]);
-    if (cancellationRequested(jobId)) {
-      updateResearchJob(jobId, { status: "cancelled", phase: "cancelled", checksFailed, currentLabel: null });
+    if ((await cancellationRequested(jobId))) {
+      (await updateResearchJob(jobId, { status: "cancelled", phase: "cancelled", checksFailed, currentLabel: null }));
       return;
     }
-    updateResearchJob(jobId, {
+    (await updateResearchJob(jobId, {
       status: "completed",
       phase: "completed",
       checksFailed,
       currentLabel: null,
       error: warnings.length ? warnings.slice(0, 3).join(" · ").slice(0, 500) : null,
-    });
+    }));
   } catch (error) {
-    failJob(jobId, error);
+    (await failJob(jobId, error));
   }
 }
 
 async function runRecheckJob(jobId: string, companyId: number) {
   try {
-    updateResearchJob(jobId, { status: "running", phase: "checking", currentLabel: "Preparing website checks" });
-    const company = getCompany(companyId);
+    (await updateResearchJob(jobId, { status: "running", phase: "checking", currentLabel: "Preparing website checks" }));
+    const company = (await getCompany(companyId));
     if (!company) throw new Error("Company not found.");
     let websiteUrl: string | null | undefined;
     if (company.source === "google_places") {
-      const place = await fetchGooglePlaceDetails(company.placeId, () => {
-        incrementRequestCount(jobId);
-        recordGooglePlacesRequest("Website re-check live lookup", company.area);
+      const place = await fetchGooglePlaceDetails(company.placeId, async () => {
+        (await incrementRequestCount(jobId));
+        (await recordGooglePlacesRequest("Website re-check live lookup", company.area, "details"));
       });
-      markGoogleLiveLookup(companyId);
+      (await markGoogleLiveLookup(companyId));
       websiteUrl = place.websiteUri ?? null;
     }
-    const result = await withWebsiteCheckLimit(() => checkCompanyWebsite(companyId, websiteUrl));
-    updateResearchJob(jobId, {
-      status: cancellationRequested(jobId) ? "cancelled" : "completed",
-      phase: cancellationRequested(jobId) ? "cancelled" : "completed",
+    const result = await withWebsiteCheckLimit(async () => (await checkCompanyWebsite(companyId, websiteUrl)));
+    (await updateResearchJob(jobId, {
+      status: (await cancellationRequested(jobId)) ? "cancelled" : "completed",
+      phase: (await cancellationRequested(jobId)) ? "cancelled" : "completed",
       completed: 1,
       checksFailed: result.failed ? 1 : 0,
       currentLabel: null,
       error: result.failed ? result.error ?? "Website checks failed after one retry." : null,
-    });
+    }));
   } catch (error) {
-    failJob(jobId, error);
+    (await failJob(jobId, error));
   }
 }
 
@@ -309,27 +310,27 @@ async function runGoogleRefreshJob(jobId: string, companyId: number) {
   let requestCounted = false;
   let area = "";
   try {
-    updateResearchJob(jobId, { status: "running", phase: "refreshing", currentLabel: "Refreshing Google Places details" });
-    const company = getCompany(companyId);
+    (await updateResearchJob(jobId, { status: "running", phase: "refreshing", currentLabel: "Refreshing Google Places details" }));
+    const company = (await getCompany(companyId));
     if (!company || company.source !== "google_places") throw new Error("This record is not from Google Places.");
     area = company.area;
-    const place = await fetchGooglePlaceDetails(company.placeId, () => {
+    const place = await fetchGooglePlaceDetails(company.placeId, async () => {
       requestCounted = true;
-      incrementRequestCount(jobId);
+      (await incrementRequestCount(jobId));
     });
     if (!place.id) throw new Error("Google Places returned no place ID.");
-    markGoogleLiveLookup(companyId);
-    updateResearchJob(jobId, {
-      status: cancellationRequested(jobId) ? "cancelled" : "completed",
-      phase: cancellationRequested(jobId) ? "cancelled" : "completed",
+    (await markGoogleLiveLookup(companyId));
+    (await updateResearchJob(jobId, {
+      status: (await cancellationRequested(jobId)) ? "cancelled" : "completed",
+      phase: (await cancellationRequested(jobId)) ? "cancelled" : "completed",
       completed: 1,
       updatedCompanies: 1,
       currentLabel: null,
-    });
+    }));
   } catch (error) {
-    failJob(jobId, error);
+    (await failJob(jobId, error));
   } finally {
-    if (requestCounted) recordGooglePlacesRequest("Google Places details refresh", area);
+    if (requestCounted) (await recordGooglePlacesRequest("Google Places details refresh", area, "details"));
   }
 }
 
@@ -353,38 +354,38 @@ export function estimateGooglePlacesSearch(input: SearchInput) {
   return estimateGooglePlacesRequests(normalized.areas, normalized.keywords);
 }
 
-export function startGooglePlacesSearch(input: SearchInput) {
+export async function startGooglePlacesSearch(input: SearchInput) {
   const normalized = normalizeInput(input);
   if (!process.env.GOOGLE_API_KEY) {
     throw new Error("Google Places is not configured. Add GOOGLE_API_KEY in Replit Secrets.");
   }
   const estimate = estimateGooglePlacesRequests(normalized.areas, normalized.keywords);
-  const job = createResearchJob("search", estimate.pairCount, estimate.requestsEstimated, normalized);
+  const job = (await createResearchJob("search", estimate.pairCount, estimate.requestsEstimated, normalized));
   void runSearchJob(job.id, normalized);
   return job;
 }
 
-export function startCompanyRecheck(companyId: number) {
-  const job = createResearchJob("recheck", 1, getCompany(companyId)?.source === "google_places" ? 1 : 0, { companyId });
+export async function startCompanyRecheck(companyId: number) {
+  const job = (await createResearchJob("recheck", 1, (await getCompany(companyId))?.source === "google_places" ? 1 : 0, { companyId }));
   void runRecheckJob(job.id, companyId);
   return job;
 }
 
-export function isGoogleRecordStale(companyId: number) {
-  const company = getCompany(companyId);
+export async function isGoogleRecordStale(companyId: number) {
+  const company = (await getCompany(companyId));
   if (!company || company.source !== "google_places") return false;
   if (!company.googleUpdatedAt) return true;
   const refreshedAt = new Date(company.googleUpdatedAt).getTime();
   return !Number.isFinite(refreshedAt) || Date.now() - refreshedAt >= 30 * 24 * 60 * 60 * 1000;
 }
 
-export function startGoogleRefresh(companyId: number) {
-  const company = getCompany(companyId);
+export async function startGoogleRefresh(companyId: number) {
+  const company = (await getCompany(companyId));
   if (!company || company.source !== "google_places") return null;
   if (!process.env.GOOGLE_API_KEY) {
     throw new Error("Google Places is not configured. Add GOOGLE_API_KEY in Replit Secrets.");
   }
-  const job = createResearchJob("google_refresh", 1, 1, { companyId });
+  const job = (await createResearchJob("google_refresh", 1, 1, { companyId }));
   void runGoogleRefreshJob(job.id, companyId);
   return job;
 }

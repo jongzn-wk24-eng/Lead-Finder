@@ -9,6 +9,8 @@ import type { MessageDraftDraftMode } from './messageDraftDraftMode';
 
 export interface MessageDraft {
   subject: string;
+  /** @nullable */
+  aiModel?: string | null;
   emailBody: string;
   whatsappBody: string;
   finding: string;

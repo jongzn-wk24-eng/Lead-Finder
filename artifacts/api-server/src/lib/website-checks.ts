@@ -509,37 +509,37 @@ async function runWithRetry(companyId: number, websiteUrl: string): Promise<Webs
 }
 
 export async function checkCompanyWebsite(companyId: number, liveWebsiteUrl?: string | null): Promise<{ failed: boolean; error: string | null }> {
-  const company = getCompany(companyId);
+  const company = (await getCompany(companyId));
   if (!company) return { failed: true, error: "Company not found." };
   const websiteUrl = liveWebsiteUrl === undefined ? company.websiteUrl : liveWebsiteUrl;
   const websiteType = socialOrWebsiteType(websiteUrl);
   if (websiteType !== "own") {
-    saveWebsiteCheck(companyId, problemForMissingWebsite(websiteType));
+    (await saveWebsiteCheck(companyId, problemForMissingWebsite(websiteType)));
     return { failed: false, error: null };
   }
   const result = await runWithRetry(companyId, websiteUrl!);
-  saveWebsiteCheck(companyId, result);
-  const screenshots = getLatestDesignScreenshotPaths(companyId);
+  (await saveWebsiteCheck(companyId, result));
+  const screenshots = (await getLatestDesignScreenshotPaths(companyId));
   if (screenshots) {
     if (!process.env.GEMINI_API_KEY) {
-      updateLatestDesignResult({
+      (await updateLatestDesignResult({
         companyId,
         status: "pending",
         message: "Design score pending: add GEMINI_API_KEY in Replit Secrets.",
-      });
+      }));
     } else {
       try {
         const design = await scoreWebsiteDesign(screenshots.desktopPath, screenshots.mobilePath, recordGeminiRequest);
-        updateLatestDesignResult({
+        (await updateLatestDesignResult({
           companyId,
           status: "completed",
           score: design.score,
           ctaObvious: design.ctaObvious,
           reasons: design.reasons,
-        });
+        }));
       } catch (error) {
         const isQuota = error instanceof GeminiQuotaError;
-        updateLatestDesignResult({
+        (await updateLatestDesignResult({
           companyId,
           status: isQuota ? "pending" : "failed",
           message: isQuota
@@ -547,7 +547,7 @@ export async function checkCompanyWebsite(companyId: number, liveWebsiteUrl?: st
             : error instanceof Error
               ? error.message
               : "Gemini design scoring failed.",
-        });
+        }));
         logger.warn(
           { companyId, status: isQuota ? "pending" : "failed", err: error },
           "Gemini design scoring did not complete",

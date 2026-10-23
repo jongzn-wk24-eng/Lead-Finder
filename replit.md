@@ -26,9 +26,11 @@ _Populate as you build — short repo map plus pointers to the source-of-truth f
 
 ## Architecture decisions
 
-- Lead Finder data is stored in a local SQLite file through one database module so the storage layer can be replaced later.
+- Lead Finder records use Replit PostgreSQL behind the lead database module. SQLite is legacy import input only, retained read-only as a development backup; never use a deployment filesystem for persistent records.
+- Real mode is the default. Demo mode reads only demo records; real mode excludes them at the database query boundary, including nested counts and CSVs. Demo fixtures are loaded only on explicit user action.
+- The three research/outreach phases must be retained. Change data handling without deleting phase implementations.
 - The password gate uses `APP_PASSWORD` and `SESSION_SECRET`; protected routes fail closed when either is missing.
-- Phase 1 uses clearly identified synthetic sample businesses and does not call third-party APIs.
+- Demo mode makes no external research or AI calls. Real Google requests require explicit action; browsing stored records does not request live fields automatically.
 - No app flow sends email or WhatsApp. Message actions only draft, copy, open a prefilled link, and record a send the user confirms manually.
 
 ## Product
@@ -44,6 +46,11 @@ _Populate as you build — explicit user instructions worth remembering across s
 - Do not add any automatic email or WhatsApp sending.
 - Never expose leads unless both `APP_PASSWORD` and `SESSION_SECRET` are configured.
 - Do not present seeded sample businesses or their outreach history as real research or real messages.
+- This is a private single-user tool behind APP_PASSWORD; the user cancelled privacy/terms page work.
+- Search and Place Details are separately counted. The one-call test is one Text Search without pagination, live enrichment, checks or AI. Google business fields remain live-only; retain Place IDs and independent research/user records.
+- Schema lives in `lib/db/src/schema/leads.ts`. Post-merge setup applies it to development and imports legacy SQLite once. Production schema changes belong to the platform Publish flow, never startup-time DDL.
+- `pnpm --filter @workspace/api-server test:phase3` exercises all three phases and demo isolation in a temporary PostgreSQL schema, with all external APIs mocked.
+- UI direction requested by the user: Urbanist, light gray background, white rounded cards, lime `#B6F06E`, dark green `#0F3D1E`, pill top navigation and responsive fintech dashboard. Visual changes must not alter business logic.
 
 ## Pointers
 

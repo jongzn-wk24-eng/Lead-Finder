@@ -74,16 +74,16 @@ function normalizeArea(value: string) {
   return value.trim().toLocaleLowerCase("en-MY").replace(/\s+/g, " ");
 }
 
-function cachedBounds(area: string): AreaBounds | null {
-  const row = leadDb.prepare(
+async function cachedBounds(area: string): Promise<AreaBounds | null> {
+  const row = (await leadDb.prepare(
     "SELECT south, west, north, east, fetched_at AS fetchedAt FROM osm_area_cache WHERE area_key = ?",
-  ).get(normalizeArea(area)) as (AreaBounds & { fetchedAt: string }) | undefined;
+  ).get(normalizeArea(area))) as (AreaBounds & { fetchedAt: string }) | undefined;
   if (!row || Date.now() - new Date(row.fetchedAt).getTime() > GEOCODE_CACHE_MS) return null;
   return { south: row.south, west: row.west, north: row.north, east: row.east };
 }
 
 export function estimateOsmRequests(areas: string[], keywords: string[]) {
-  const cachedAreas = areas.filter((area) => cachedBounds(area) !== null);
+  const cachedAreas = areas.filter(async (area) => (await cachedBounds(area)) !== null);
   const geocodingCalls = areas.length - cachedAreas.length;
   return {
     areaCount: areas.length,
@@ -98,10 +98,10 @@ export function estimateOsmRequests(areas: string[], keywords: string[]) {
 }
 
 async function geocodeArea(area: string, onRequest?: () => void): Promise<{ bounds: AreaBounds; madeRequest: boolean }> {
-  const existing = cachedBounds(area);
+  const existing = (await cachedBounds(area));
   if (existing) return { bounds: existing, madeRequest: false };
   return serializedOsmRequest(async () => {
-    const racedCache = cachedBounds(area);
+    const racedCache = (await cachedBounds(area));
     if (racedCache) return { bounds: racedCache, madeRequest: false };
     const waitMs = Math.max(0, 1100 - (Date.now() - lastNominatimRequestAt));
     if (waitMs) await delay(waitMs);
@@ -122,13 +122,13 @@ async function geocodeArea(area: string, onRequest?: () => void): Promise<{ boun
       throw new Error(`Could not find the area "${area}" in OpenStreetMap.`);
     }
     const bounds = { south: box[0]!, north: box[1]!, west: box[2]!, east: box[3]! };
-    leadDb.prepare(`
+    (await leadDb.prepare(`
       INSERT INTO osm_area_cache (area_key, area_name, south, west, north, east, fetched_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(area_key) DO UPDATE SET
         area_name = excluded.area_name, south = excluded.south, west = excluded.west,
         north = excluded.north, east = excluded.east, fetched_at = excluded.fetched_at
-    `).run(normalizeArea(area), area.trim(), bounds.south, bounds.west, bounds.north, bounds.east, new Date().toISOString());
+    `).run(normalizeArea(area), area.trim(), bounds.south, bounds.west, bounds.north, bounds.east, new Date().toISOString()));
     return { bounds, madeRequest: true };
   });
 }
@@ -305,17 +305,17 @@ export async function fetchOsmElement(osmType: string, osmId: string, onRequest?
   });
 }
 
-export function upsertOsmListing(listing: OsmListing) {
+export async function upsertOsmListing(listing: OsmListing) {
   const now = new Date().toISOString();
-  const existing = leadDb.prepare("SELECT id FROM companies WHERE place_id = ?").get(listing.placeId) as { id: number } | undefined;
-  leadDb.prepare(`
+  const existing = (await leadDb.prepare("SELECT id FROM companies WHERE place_id = ?").get(listing.placeId)) as { id: number } | undefined;
+  (await leadDb.prepare(`
     INSERT INTO companies (
       place_id, name, address, area, keyword, phone, website_url, maps_url,
       rating, review_count, email, whatsapp, status, value_score, problem_score,
       opportunity_score, reasons_json, fetched_at, created_at, source, osm_type,
       osm_id, osm_updated_at, rating_available, value_score_method,
       value_score_base, value_score_details_json, osm_opening_hours
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, 'New', ?, 0, ?, '[]', ?, ?, 'openstreetmap', ?, ?, ?, 0,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, 'New', ?, 0, ?, '[]', ?, ?, 'manual', ?, ?, ?, 0,
       'OSM estimate: category, branches and listing completeness', ?, ?, ?)
     ON CONFLICT(place_id) DO UPDATE SET
       name = excluded.name,
@@ -328,7 +328,7 @@ export function upsertOsmListing(listing: OsmListing) {
       email = COALESCE(excluded.email, companies.email),
       whatsapp = COALESCE(excluded.whatsapp, companies.whatsapp),
       fetched_at = excluded.fetched_at,
-      source = 'openstreetmap',
+      source = 'manual',
       osm_type = excluded.osm_type,
       osm_id = excluded.osm_id,
       osm_updated_at = excluded.osm_updated_at,
@@ -360,16 +360,16 @@ export function upsertOsmListing(listing: OsmListing) {
     listing.valueScoreBase,
     JSON.stringify(listing.valueScoreDetails),
     listing.openingHours,
-  );
-  const row = leadDb.prepare("SELECT id FROM companies WHERE place_id = ?").get(listing.placeId) as { id: number };
+  ));
+  const row = (await leadDb.prepare("SELECT id FROM companies WHERE place_id = ?").get(listing.placeId)) as { id: number };
   return { id: Number(row.id), isNew: !existing };
 }
 
-export function recomputeOsmValueScores() {
-  const rows = leadDb.prepare(`
+export async function recomputeOsmValueScores() {
+  const rows = (await leadDb.prepare(`
     SELECT id, name, value_score_base AS baseScore, value_score_details_json AS detailsJson
-    FROM companies WHERE source = 'openstreetmap'
-  `).all() as Array<{ id: number; name: string; baseScore: number; detailsJson: string }>;
+    FROM companies WHERE osm_id IS NOT NULL
+  `).all()) as Array<{ id: number; name: string; baseScore: number; detailsJson: string }>;
   const counts = new Map<string, Set<number>>();
   for (const row of rows) {
     const key = row.name.trim().toLocaleLowerCase("en-MY").replace(/\s+/g, " ");
@@ -392,10 +392,10 @@ export function recomputeOsmValueScores() {
     const branches = (counts.get(row.name.trim().toLocaleLowerCase("en-MY").replace(/\s+/g, " "))?.size ?? 0) >= 2;
     if (branches) details.push("Same business name at 2 or more OSM locations (+5)");
     const valueScore = Math.min(30, Number(row.baseScore) + (branches ? 5 : 0));
-    update.run(valueScore, valueScore, JSON.stringify(details), row.id);
+    (await update.run(valueScore, valueScore, JSON.stringify(details), row.id));
   }
 }
 
-export function isOsmAreaCached(area: string) {
-  return cachedBounds(area) !== null;
+export async function isOsmAreaCached(area: string) {
+  return (await cachedBounds(area)) !== null;
 }

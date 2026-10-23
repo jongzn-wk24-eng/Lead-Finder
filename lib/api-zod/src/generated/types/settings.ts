@@ -7,6 +7,7 @@
  */
 
 export interface Settings {
+  demoMode: boolean;
   areas: string[];
   keywords: string[];
   emailDailyLimit: number;

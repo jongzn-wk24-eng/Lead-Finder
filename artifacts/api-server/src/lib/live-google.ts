@@ -8,7 +8,7 @@ import {
 import { fetchGooglePlaceDetails } from "./google-places";
 import { logger } from "./logger";
 
-type StoredCompany = ReturnType<typeof listCompanies>[number];
+type StoredCompany = Awaited<ReturnType<typeof listCompanies>>[number];
 type LiveCompany<T> = T & {
   googleDataWarning: string | null;
   googleAttributions: Array<{ provider?: string; providerUri?: string }>;
@@ -18,8 +18,8 @@ type LiveCompany<T> = T & {
 export async function withLiveGoogleData<T extends StoredCompany>(company: T): Promise<LiveCompany<T>> {
   if (company.source !== "google_places") return { ...company, googleDataWarning: null, googleAttributions: [] };
   try {
-    const place = await fetchGooglePlaceDetails(company.placeId, () => {
-      recordGooglePlacesRequest("Live Place Details", company.area);
+    const place = await fetchGooglePlaceDetails(company.placeId, async () => {
+      (await recordGooglePlacesRequest("Live Place Details", company.area, "details"));
     });
     const score = calculateLiveGoogleValue({
       keyword: company.keyword,
@@ -38,7 +38,7 @@ export async function withLiveGoogleData<T extends StoredCompany>(company: T): P
       ratingAvailable: place.rating != null || place.userRatingCount != null,
       ...score,
       opportunityScore: score.valueScore + company.problemScore,
-      googleUpdatedAt: markGoogleLiveLookup(company.id),
+      googleUpdatedAt: (await markGoogleLiveLookup(company.id)),
       googleDataWarning: null,
       googleAttributions: place.attributions ?? [],
     };
@@ -67,7 +67,7 @@ export async function withLiveGoogleList<T extends StoredCompany>(companies: T[]
 
 export async function withLiveCompanyNames<T extends Record<string, unknown>>(rows: T[]) {
   const ids = [...new Set(rows.map((row) => Number(row.companyId)).filter(Number.isFinite))];
-  const companies = ids.map(getCompany).filter((company) => company != null);
+  const companies = (await Promise.all(ids.map(getCompany))).filter((company) => company != null);
   const live = await withLiveGoogleList(companies);
   const names = new Map(live.map((company) => [company.id, company.name]));
   return rows.map((row) => ({ ...row, companyName: names.get(Number(row.companyId)) ?? row.companyName }));
