@@ -1,0 +1,147 @@
+Replit Agent prompt: Lead Finder (build in 3 phases)
+
+How to use: paste PART A (context and rules) first, then paste PHASE 1. Test it. Then paste PHASE 2, test, then PHASE 3. Do not paste everything at once.
+
+PART A: CONTEXT AND RULES (paste first)
+Background
+
+I am Dylan Jong, a freelance web designer in Malaysia. I want a private tool for myself (single user) that finds local businesses in Kuala Lumpur that look successful but have a weak website, and helps me write a personalised cold email to each one. I send every email myself, manually. The app never sends anything.
+
+Goal
+
+In one week I want to: find businesses in KL on Google Maps, automatically check their website, score how good a lead each one is, show them in a dashboard, generate an email draft with one click, and keep a record of who I contacted and what happened.
+
+Tech and setup
+One TypeScript full-stack project. Next.js preferred. If Replit's template makes Express + React simpler, that is fine. Keep it as simple as possible.
+SQLite file database for now. Put all database access in one module so it can be swapped to Postgres later.
+All API keys in Replit Secrets, never in code: GOOGLE_PLACES_API_KEY, PAGESPEED_API_KEY, GEMINI_API_KEY, APP_PASSWORD.
+Because this runs on Replit (reachable from the internet), add a simple password gate on every page and API route using APP_PASSWORD. Single user, no sign-up.
+UI language: English. Clean, minimal, fast, desktop-first but usable on phone. Looks matter less than working, but keep it tidy: clear tables, readable type, generous spacing.
+Do not ask me many questions. Use the defaults in this document. If something is ambiguous, pick the simplest option and tell me what you chose.
+Hard rules (must always be followed)
+The app NEVER sends email or WhatsApp. It only generates text and gives me copy buttons and links. I press send myself.
+Use only the official Google Places API (New). Never scrape Google Maps pages.
+Places API quota: free tier is 1,000 Text Search requests per month for the fields I need. Count every call in a searches table. Show "X / 1,000 used this month" in the app. Warn at 900, hard-stop at 1,000.
+Request only the fields needed (name, address, phone, website, rating, review count, price level, Google Maps URL, business status, place ID) using a field mask, so the request does not move into a more expensive tier.
+Google data storage: keep place ID permanently. For other Google fields, store fetched_at and mark them stale after 30 days (show a "refresh" button). Never build a long-term business database.
+Website checks: visit only the homepage and, if found, one contact page per company. 20 second timeout, polite User-Agent, no crawling.
+Deduplicate by place ID. A company never appears twice.
+"Do not contact" is permanent. Once marked, the company is hidden from all action lists and can never be claimed again, even if a later search finds it.
+Maximum 3 emails per company (1 initial + 2 follow-ups). After the third, status becomes "Closed: no reply".
+Daily send limits (editable in Settings): 15 emails per day, 10 WhatsApp messages per day. Show "Sent today X / limit" and warn when reached. Warn if I try to use email and WhatsApp for the same company on the same day.
+The email may only mention facts that came from the stored checks. Never invent numbers, traffic, client results, "similar companies", or claims about their business.
+If a company has no real finding stored, refuse to generate an email and show "Need a real finding first."
+No auto follow-up sending. The app only shows me which follow-ups are due.
+If an AI call fails or the free quota is used up, fall back to the plain template (below) filled with variables, so the app keeps working.
+If screenshots cannot run in this environment, do not fail. Skip screenshots and the design score, mark them "not available", and tell me.
+Scoring (used from Phase 2)
+
+Each company gets a Business Value score (max 30) and a Website Problem score (max 70). Opportunity score = value + problem (max 100). Default list filter: value >= 15 and problem >= 25 (toggle to show all).
+
+Business Value (max 30):
+
+Reviews: 200+ = 12, 50 to 199 = 8, 20 to 49 = 4, under 20 = 0
+Rating: 4.2+ = 5, 4.0 to 4.1 = 3
+Two or more branches (same name at 2+ locations) = 5
+Business is in a high-value keyword category (list below) = 8
+
+Website Problem (max 70, each item capped separately):
+
+A. No website, or only a Facebook/Instagram page: tag "No website", problem score = 50, skip B, C, D
+Website fails to load or times out: tag "Site down", problem score = 30, flag for manual check, skip B, C, D
+B. Speed (Google PageSpeed Insights, mobile): performance score under 50 = +15, 50 to 89 = +7; LCP over 4 seconds = +5 extra (max 20)
+C. Age and tech (from homepage HTML): copyright year 5+ years old = +10; no HTTPS = +5; no viewport meta tag = +5 (max 20)
+Contact friction (homepage + contact page): no tel: link = +3; no WhatsApp link (wa.me or api.whatsapp.com) = +4; no contact form or contact page = +3 (max 10)
+D. Design score (Gemini looks at desktop and mobile screenshots, returns 0 to 10, where 10 is excellent, plus one-sentence reason and up to 2 concrete issues): 4 or lower = +20, 5 to 6 = +10 (max 20). The AI must also answer yes/no: "Is the main action button (call, WhatsApp, book) obvious within the first screen?"
+
+For each company store up to 3 "reasons" in plain English, most important first, for example: "Homepage takes about 7.2 seconds to load on mobile", "Copyright year is 2019", "No WhatsApp or call button found", "Design score 3/10". Only reasons backed by stored data.
+
+Also from the homepage and contact page, extract: email addresses (mailto links and visible text), WhatsApp links, and the site builder if detectable (Wix, WordPress, etc., label only, no score).
+
+Search settings
+Areas (editable): KLCC, Bukit Bintang, Bangsar, Mont Kiara, Damansara Heights, Sri Hartamas, Cheras, Setapak, Sentul, Kepong, Bukit Jalil.
+Keyword list (editable, no industry selection needed from me; the app loops through them): dental clinic, medical specialist, aesthetic clinic, law firm, accounting firm, interior design, renovation contractor, real estate agency, private school, tuition centre, car dealership, hotel, wedding services, trading company.
+A "Find leads" action takes the selected areas and keywords, runs one search per (keyword, area) pair, shows how many API calls it will use before running, and lets me cancel.
+Data model (minimum)
+companies: id, place_id (unique), name, address, area, keyword, phone, website_url, maps_url, rating, review_count, price_level, email, whatsapp, first_name (blank by default), status, value_score, problem_score, opportunity_score, reasons (JSON), finding_type, notes, fetched_at, created_at
+checks: company_id, checked_at, website_type (own / social / down / none), psi_mobile_score, lcp_seconds, https, has_viewport, copyright_year, has_tel_link, has_whatsapp_link, has_contact_form, site_builder, design_score, design_reason, cta_obvious, screenshot_desktop_path, screenshot_mobile_path
+activity: id, company_id, timestamp, action, channel, sequence_no, note. Actions: generated, copied_email, copied_whatsapp, marked_sent, reply_logged, status_changed, marked_do_not_contact, note_added
+outreach: id, company_id, channel (email / whatsapp), sequence_no (1 to 3), subject, body, sent_at, replied_at, result, next_followup_at
+searches: id, keyword, area, ran_at, api_calls, results_count
+settings: areas, keywords, email_daily_limit (15), whatsapp_daily_limit (10), followup_1_days (4), followup_2_days (10), my_name ("Dylan Jong"), my_title ("Web Designer"), my_whatsapp (blank, required before generating), portfolio_url ("https://my-portfolio.jongzhenyat0121.workers.dev/")
+
+Company statuses: New, Claimed (email copied, not yet marked sent), Sent #1, Sent #2, Sent #3, Replied, Wants hero, Hero sent, Won, Not interested, Do not contact, Closed: no reply.
+
+Email content (the app must use these)
+
+Language: English, simple spoken style, like a normal person writing to a stranger. Short sentences. Never use: "I hope this email finds you well", exclamation marks, ALL CAPS, buzzwords, guarantees, percentages, prices. Use "might" or "seems" for anything not directly measured. One offer only.
+
+Greeting: use "Hi {{first_name}}," if first_name is filled in on the company page, otherwise "Hi there,". We do not know the owner's name by default.
+
+Email 1 template:
+
+Subject: Quick note about {{company}}'s website
+
+Hi {{first_name or "there"}},
+
+I found {{company}} on Google Maps and had a look at your website on my phone. {{finding}} That might be costing you some enquiries.
+
+I'm Dylan, a web designer. I build custom websites that make it easier for visitors to call, WhatsApp or book, so more of them turn into enquiries.
+
+I'd like to send you a free concept of how the top of your homepage could look. No strings. Want me to send it over?
+
+My work: {{portfolio_url}}
+
+If you're not interested, just tell me and I won't message again.
+
+Dylan Jong Web Designer WhatsApp: {{my_whatsapp}}
+
+{{finding}} is ONE sentence chosen from stored data, in this priority order:
+
+No WhatsApp or call button found: "I couldn't find a WhatsApp or call button."
+Slow on mobile: "The homepage takes about {{X}} seconds to load."
+Not secure or down: "The browser shows the site as not secure." or "The site didn't open when I tried it."
+Looks outdated (old copyright year or low design score): "The site looks like it hasn't been updated since around {{year}}."
+No website: "I couldn't find a website for it, only a social page."
+Main action button not obvious (cta_obvious = no): "The main contact button isn't easy to spot."
+
+Follow-up 1 (due {{followup_1_days}} days after email 1, only if no reply): Subject: Re: Quick note about {{company}}'s website Hi {{first_name or "there"}}, Just checking you saw my note. Happy to send the free homepage concept for {{company}} if you're interested. If not, no worries. Dylan
+
+Follow-up 2, final (due {{followup_2_days}} days after email 1, only if no reply): Hi {{first_name or "there"}}, Last message from me. If your website ever becomes a priority, the free homepage concept offer still stands. My WhatsApp is below. Dylan WhatsApp: {{my_whatsapp}}
+
+WhatsApp version (max 40 words, same rules): Hi {{first_name or "there"}}, this is Dylan, a web designer. I checked {{company}}'s website on my phone: {{short_finding}}. Can I send you a free concept of a better homepage top section? No strings. My work: {{portfolio_url}}
+
+AI instruction used when generating with Gemini (store it as an editable setting): "Write one short cold email (max 100 words) from Dylan Jong, a freelance web designer, to a local business owner in Malaysia. Use only the facts provided. Never invent numbers or claims. Use the company name and ONE real finding from the data; if none is provided, reply 'Need a real finding first.' Follow the structure of the template exactly: found on Google Maps and checked on phone + the finding + 'That might be costing you some enquiries'; one sentence on who I am; one small free offer (free concept of the top of their homepage, no strings, ask 'Want me to send it over?'); one portfolio link; one opt-out line; sign-off. Simple spoken English, short sentences. Avoid: 'I hope this email finds you well', exclamation marks, ALL CAPS, buzzwords, guarantees, percentages, prices. Use 'might' or 'seems' for anything not directly measured. Also write a WhatsApp version, max 40 words."
+
+PHASE 1: App shell, three pages, fake data (paste after Part A)
+
+Build the whole app with the database, password gate, settings, and these three main pages using fake seed data (about 30 sample KL companies with varied scores, statuses and reasons). Do not call any external API yet. Email generation uses the plain template for now. Navigation: Data Center, Leads, Activity, plus a small Settings page.
+
+Page 1: Data Center (home)
+
+Show everything at a glance:
+
+Today: emails sent X / limit, WhatsApp sent X / limit
+Totals: companies collected, by status (small bar or funnel), emails sent by sequence (1, 2, 3), WhatsApp sent, replies, reply rate (replies / companies contacted), "Wants hero" count, hero sent, won
+Follow-ups due today (list, click to open company)
+Quota meters: Places searches this month X / 1,000, AI calls today
+Reply rate by finding type and by channel (email vs WhatsApp), once there is data
+Simple, readable charts only. No clutter.
+Page 2: Leads (available businesses)
+Table of collected companies: name, area, keyword/industry, rating and reviews, opportunity score, top 2 reasons, contact icons (email, WhatsApp, phone), status.
+Default sort: opportunity score high to low. Default filter: value >= 15 and problem >= 25, with a toggle to show all. Filters: status, score range, area, has website / no website, has contact.
+Each row has a "Get email" button. Clicking it opens a panel with the generated subject and body (and WhatsApp version), with buttons: Copy email, Copy WhatsApp, Open WhatsApp (wa.me link with the message pre-filled), Mark as sent. Copying logs an activity entry and sets status to Claimed. "Mark as sent" logs the send, sets Sent #n, and schedules the next follow-up. If the company is Do not contact, hide the button. If it was already claimed or sent, show a warning with the history before allowing another action.
+Clicking a company name opens the Company page.
+A "Find leads" button (wired up in Phase 2; in Phase 1 show it disabled).
+Company page (opened from Leads)
+
+Sections: basic info and contact details (editable: first name, email, WhatsApp); scores and the full list of reasons; screenshots (desktop and mobile; placeholder for now); email section (same Get email panel, plus a record of every email sent with date and sequence number); status dropdown; notes; a "Do not contact" button with confirmation.
+
+Page 3: Activity (my actions log)
+Chronological table of everything I did: time, company, action (generated, copied email, copied WhatsApp, marked sent #n, reply logged, status changed, do not contact), channel, note.
+Filters by company, action, channel, date. Search by company name. Export to CSV.
+At the top: "Due today" list of follow-ups, and "Claimed but not marked sent" list (so I remember to confirm what I really sent).
+This page is how I see exactly whose email I copied and whom I actually sent to.
+Settings page
+
+Areas, keywords, daily limits, follow-up days, my name, title, WhatsApp number, portfolio URL, and the editable AI instruction.
