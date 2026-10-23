@@ -14,6 +14,8 @@ tags:
     description: Password-gate session
   - name: leads
     description: Lead and outreach management
+  - name: search
+    description: OpenStreetMap lead discovery and research jobs
   - name: activity
     description: Activity history
   - name: settings
@@ -90,6 +92,83 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Dashboard"
+  /search/estimate:
+    post:
+      operationId: estimateSearch
+      tags: [search]
+      summary: Estimate uncached OpenStreetMap requests for selected areas
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SearchInput" }
+      responses:
+        "200":
+          description: Request estimate
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SearchEstimate" }
+  /search/jobs:
+    post:
+      operationId: startSearchJob
+      tags: [search]
+      summary: Start an OpenStreetMap search and website-check job
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SearchInput" }
+      responses:
+        "202":
+          description: Search job queued
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ResearchJob" }
+  /search/jobs/{jobId}:
+    parameters:
+      - in: path
+        name: jobId
+        required: true
+        schema: { type: string }
+    get:
+      operationId: getSearchJob
+      tags: [search]
+      summary: Read background search or check progress
+      responses:
+        "200":
+          description: Job progress
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ResearchJob" }
+        "404": { description: Job not found }
+  /search/jobs/{jobId}/cancel:
+    parameters:
+      - in: path
+        name: jobId
+        required: true
+        schema: { type: string }
+    post:
+      operationId: cancelSearchJob
+      tags: [search]
+      summary: Cancel a queued or running search
+      responses:
+        "200":
+          description: Updated job state
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ResearchJob" }
+        "404": { description: Job not found }
+  /sample-data:
+    delete:
+      operationId: deleteSampleData
+      tags: [leads]
+      summary: Delete only seeded fictional sample businesses and their related records
+      responses:
+        "200":
+          description: Sample data removed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SampleDeleteResult" }
   /companies:
     get:
       operationId: listCompanies
@@ -169,6 +248,62 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Company" }
+  /companies/{companyId}/recheck:
+    post:
+      operationId: recheckCompany
+      tags: [search]
+      summary: Queue fresh website checks for one company
+      parameters:
+        - in: path
+          name: companyId
+          required: true
+          schema: { type: integer }
+      responses:
+        "202":
+          description: Website checks queued
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ResearchJob" }
+        "404": { description: Company not found }
+  /companies/{companyId}/refresh-osm:
+    post:
+      operationId: refreshOsmCompany
+      tags: [search]
+      summary: Refresh a stale company record from OpenStreetMap
+      parameters:
+        - in: path
+          name: companyId
+          required: true
+          schema: { type: integer }
+      responses:
+        "202":
+          description: OpenStreetMap refresh queued
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ResearchJob" }
+        "404": { description: Company not found }
+        "409": { description: Company is not an OpenStreetMap record }
+  /companies/{companyId}/screenshots/{variant}:
+    get:
+      operationId: getCompanyScreenshot
+      tags: [leads]
+      summary: Read a private desktop or mobile website screenshot
+      parameters:
+        - in: path
+          name: companyId
+          required: true
+          schema: { type: integer }
+        - in: path
+          name: variant
+          required: true
+          schema: { type: string, enum: [desktop, mobile] }
+      responses:
+        "200":
+          description: Screenshot image
+          content:
+            image/png:
+              schema: { type: string, format: binary }
+        "404": { description: Screenshot not found }
   /companies/{companyId}/status:
     post:
       operationId: updateCompanyStatus
@@ -389,6 +524,13 @@ components:
         phone: { type: ["string", "null"] }
         websiteUrl: { type: ["string", "null"] }
         mapsUrl: { type: ["string", "null"] }
+        source: { type: string, enum: [openstreetmap, manual, sample] }
+        osmType: { type: ["string", "null"] }
+        osmId: { type: ["string", "null"] }
+        osmUpdatedAt: { type: ["string", "null"], format: date-time }
+        ratingAvailable: { type: boolean }
+        valueScoreMethod: { type: string }
+        valueScoreDetails: { type: array, items: { type: string } }
         rating: { type: number }
         reviewCount: { type: integer }
         priceLevel: { type: ["string", "null"] }
@@ -412,7 +554,7 @@ components:
         whatsappCount: { type: integer }
         isDoNotContact: { type: boolean }
         isSampleData: { type: boolean }
-      required: [id, placeId, name, address, area, keyword, rating, reviewCount, firstName, status, valueScore, problemScore, opportunityScore, reasons, notes, fetchedAt, createdAt, emailCount, whatsappCount, isDoNotContact, isSampleData]
+      required: [id, placeId, name, address, area, keyword, rating, reviewCount, firstName, status, valueScore, problemScore, opportunityScore, reasons, notes, fetchedAt, createdAt, emailCount, whatsappCount, isDoNotContact, isSampleData, source, osmType, osmId, osmUpdatedAt, ratingAvailable, valueScoreMethod, valueScoreDetails]
     CompanyDetail:
       allOf:
         - $ref: "#/components/schemas/Company"
@@ -440,11 +582,68 @@ components:
         hasTelLink: { type: ["boolean", "null"] }
         hasWhatsappLink: { type: ["boolean", "null"] }
         hasContactForm: { type: ["boolean", "null"] }
+        hasContactPage: { type: ["boolean", "null"] }
         siteBuilder: { type: ["string", "null"] }
         designScore: { type: ["integer", "null"] }
         designReason: { type: ["string", "null"] }
         ctaObvious: { type: ["boolean", "null"] }
+        retryCount: { type: integer }
+        checkStatus: { type: string, enum: [completed, failed, skipped] }
+        lastError: { type: ["string", "null"] }
+        screenshotDesktopUrl: { type: ["string", "null"] }
+        screenshotMobileUrl: { type: ["string", "null"] }
       required: [checkedAt, websiteType]
+    SearchInput:
+      type: object
+      properties:
+        areas:
+          type: array
+          items: { type: string, minLength: 1, maxLength: 100 }
+          minItems: 1
+          maxItems: 20
+        keywords:
+          type: array
+          items: { type: string, minLength: 1, maxLength: 100 }
+          minItems: 1
+          maxItems: 30
+      required: [areas, keywords]
+    SearchEstimate:
+      type: object
+      properties:
+        areaCount: { type: integer }
+        keywordCount: { type: integer }
+        geocodingCalls: { type: integer }
+        cachedAreas: { type: array, items: { type: string } }
+        overpassCalls: { type: integer }
+        totalCalls: { type: integer }
+        strategy: { type: string }
+        maxListingsPerArea: { type: integer }
+      required: [areaCount, keywordCount, geocodingCalls, cachedAreas, overpassCalls, totalCalls, strategy, maxListingsPerArea]
+    ResearchJob:
+      type: object
+      properties:
+        id: { type: string }
+        kind: { type: string, enum: [search, recheck, osm_refresh] }
+        status: { type: string, enum: [queued, running, completed, cancelled, failed] }
+        phase: { type: string }
+        total: { type: integer }
+        completed: { type: integer }
+        requestsEstimated: { type: integer }
+        requestsMade: { type: integer }
+        newCompanies: { type: integer }
+        updatedCompanies: { type: integer }
+        skippedCompanies: { type: integer }
+        checksFailed: { type: integer }
+        currentLabel: { type: ["string", "null"] }
+        error: { type: ["string", "null"] }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+      required: [id, kind, status, phase, total, completed, requestsEstimated, requestsMade, newCompanies, updatedCompanies, skippedCompanies, checksFailed, currentLabel, error, createdAt, updatedAt]
+    SampleDeleteResult:
+      type: object
+      properties:
+        deletedCompanies: { type: integer }
+      required: [deletedCompanies]
     ActivityItem:
       type: object
       properties:
@@ -524,9 +723,9 @@ components:
               sequenceNo: { type: integer }
               count: { type: integer }
             required: [sequenceNo, count]
-        placesSearchCount: { type: integer }
+        osmRequestsCount: { type: integer }
         aiCallsToday: { type: integer }
-      required: [totals, sentToday, limits, byStatus, bySequence, placesSearchCount, aiCallsToday]
+      required: [totals, sentToday, limits, byStatus, bySequence, osmRequestsCount, aiCallsToday]
     MessageDraft:
       type: object
       properties:

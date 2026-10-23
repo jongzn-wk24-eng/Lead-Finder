@@ -5,6 +5,7 @@
  * KL Lead Finder API
  * OpenAPI spec version: 0.1.0
  */
+import type { CheckCheckStatus } from './checkCheckStatus';
 
 export interface Check {
   checkedAt: Date;
@@ -26,6 +27,8 @@ export interface Check {
   /** @nullable */
   hasContactForm?: boolean | null;
   /** @nullable */
+  hasContactPage?: boolean | null;
+  /** @nullable */
   siteBuilder?: string | null;
   /** @nullable */
   designScore?: number | null;
@@ -33,4 +36,12 @@ export interface Check {
   designReason?: string | null;
   /** @nullable */
   ctaObvious?: boolean | null;
+  retryCount?: number;
+  checkStatus?: CheckCheckStatus;
+  /** @nullable */
+  lastError?: string | null;
+  /** @nullable */
+  screenshotDesktopUrl?: string | null;
+  /** @nullable */
+  screenshotMobileUrl?: string | null;
 }

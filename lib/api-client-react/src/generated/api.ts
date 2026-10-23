@@ -36,6 +36,10 @@ import type {
   MessageDraft,
   OkResult,
   ReplyInput,
+  ResearchJob,
+  SampleDeleteResult,
+  SearchEstimate,
+  SearchInput,
   SentInput,
   Settings,
   SettingsUpdate,
@@ -463,6 +467,407 @@ export function useGetDashboard<TData = Awaited<ReturnType<typeof getDashboard>>
 
 
 
+export const getEstimateSearchUrl = () => {
+
+
+
+
+  return `/api/search/estimate`
+}
+
+/**
+ * @summary Estimate uncached OpenStreetMap requests for selected areas
+ */
+export const estimateSearch = async (searchInput: SearchInput, options?: Parameters<typeof customFetch>[1]): Promise<SearchEstimate> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<SearchEstimate>(getEstimateSearchUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(searchInput)
+  }
+);}
+
+
+
+
+
+export const getEstimateSearchMutationKey = () => ['estimateSearch'] as const;
+
+export const getEstimateSearchMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof estimateSearch>>, TError,EstimateSearchMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof estimateSearch>>, TError,EstimateSearchMutationVariables, TContext> => {
+
+const mutationKey = getEstimateSearchMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof estimateSearch>>, EstimateSearchMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  estimateSearch(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type EstimateSearchMutationResult = NonNullable<Awaited<ReturnType<typeof estimateSearch>>>
+    export type EstimateSearchMutationBody = BodyType<SearchInput>
+    export type EstimateSearchMutationError = ErrorType<unknown>
+    export type EstimateSearchMutationVariables = {data: BodyType<SearchInput>}
+
+    /**
+ * @summary Estimate uncached OpenStreetMap requests for selected areas
+ */
+export const useEstimateSearch = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof estimateSearch>>, TError,EstimateSearchMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof estimateSearch>>,
+        TError,
+        EstimateSearchMutationVariables,
+        TContext
+      > => {
+      return useMutation(getEstimateSearchMutationOptions(options));
+    }
+
+export const getStartSearchJobUrl = () => {
+
+
+
+
+  return `/api/search/jobs`
+}
+
+/**
+ * @summary Start an OpenStreetMap search and website-check job
+ */
+export const startSearchJob = async (searchInput: SearchInput, options?: Parameters<typeof customFetch>[1]): Promise<ResearchJob> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<ResearchJob>(getStartSearchJobUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(searchInput)
+  }
+);}
+
+
+
+
+
+export const getStartSearchJobMutationKey = () => ['startSearchJob'] as const;
+
+export const getStartSearchJobMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof startSearchJob>>, TError,StartSearchJobMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof startSearchJob>>, TError,StartSearchJobMutationVariables, TContext> => {
+
+const mutationKey = getStartSearchJobMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof startSearchJob>>, StartSearchJobMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  startSearchJob(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type StartSearchJobMutationResult = NonNullable<Awaited<ReturnType<typeof startSearchJob>>>
+    export type StartSearchJobMutationBody = BodyType<SearchInput>
+    export type StartSearchJobMutationError = ErrorType<unknown>
+    export type StartSearchJobMutationVariables = {data: BodyType<SearchInput>}
+
+    /**
+ * @summary Start an OpenStreetMap search and website-check job
+ */
+export const useStartSearchJob = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof startSearchJob>>, TError,StartSearchJobMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof startSearchJob>>,
+        TError,
+        StartSearchJobMutationVariables,
+        TContext
+      > => {
+      return useMutation(getStartSearchJobMutationOptions(options));
+    }
+
+export const getGetSearchJobUrl = (jobId: string,) => {
+
+
+
+
+  return `/api/search/jobs/${jobId}`
+}
+
+/**
+ * @summary Read background search or check progress
+ */
+export const getSearchJob = async (jobId: string, options?: Parameters<typeof customFetch>[1]): Promise<ResearchJob> => {
+
+  return customFetch<ResearchJob>(getGetSearchJobUrl(jobId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetSearchJobQueryKey = (jobId: string,) => {
+    return [
+    `/api/search/jobs/${jobId}`
+    ] as const;
+    }
+
+
+export const getGetSearchJobQueryOptions = <TData = Awaited<ReturnType<typeof getSearchJob>>, TError = ErrorType<void>>(jobId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getSearchJob>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetSearchJobQueryKey(jobId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getSearchJob>>> = ({ signal }) => getSearchJob(jobId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: jobId !== null && jobId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getSearchJob>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetSearchJobQueryResult = NonNullable<Awaited<ReturnType<typeof getSearchJob>>>
+export type GetSearchJobQueryError = ErrorType<void>
+
+
+/**
+ * @summary Read background search or check progress
+ */
+
+export function useGetSearchJob<TData = Awaited<ReturnType<typeof getSearchJob>>, TError = ErrorType<void>>(
+ jobId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getSearchJob>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetSearchJobQueryOptions(jobId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCancelSearchJobUrl = (jobId: string,) => {
+
+
+
+
+  return `/api/search/jobs/${jobId}/cancel`
+}
+
+/**
+ * @summary Cancel a queued or running search
+ */
+export const cancelSearchJob = async (jobId: string, options?: Parameters<typeof customFetch>[1]): Promise<ResearchJob> => {
+
+  return customFetch<ResearchJob>(getCancelSearchJobUrl(jobId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getCancelSearchJobMutationKey = () => ['cancelSearchJob'] as const;
+
+export const getCancelSearchJobMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof cancelSearchJob>>, TError,CancelSearchJobMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof cancelSearchJob>>, TError,CancelSearchJobMutationVariables, TContext> => {
+
+const mutationKey = getCancelSearchJobMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof cancelSearchJob>>, CancelSearchJobMutationVariables> = (props) => {
+          const {jobId} = props ?? {};
+
+          return  cancelSearchJob(jobId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CancelSearchJobMutationResult = NonNullable<Awaited<ReturnType<typeof cancelSearchJob>>>
+
+    export type CancelSearchJobMutationError = ErrorType<void>
+    export type CancelSearchJobMutationVariables = {jobId: string}
+
+    /**
+ * @summary Cancel a queued or running search
+ */
+export const useCancelSearchJob = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof cancelSearchJob>>, TError,CancelSearchJobMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof cancelSearchJob>>,
+        TError,
+        CancelSearchJobMutationVariables,
+        TContext
+      > => {
+      return useMutation(getCancelSearchJobMutationOptions(options));
+    }
+
+export const getDeleteSampleDataUrl = () => {
+
+
+
+
+  return `/api/sample-data`
+}
+
+/**
+ * @summary Delete only seeded fictional sample businesses and their related records
+ */
+export const deleteSampleData = async ( options?: Parameters<typeof customFetch>[1]): Promise<SampleDeleteResult> => {
+
+  return customFetch<SampleDeleteResult>(getDeleteSampleDataUrl(),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+
+export const getDeleteSampleDataMutationKey = () => ['deleteSampleData'] as const;
+
+export const getDeleteSampleDataMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteSampleData>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteSampleData>>, TError,void, TContext> => {
+
+const mutationKey = getDeleteSampleDataMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteSampleData>>, void> = () => {
+
+
+          return  deleteSampleData(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteSampleDataMutationResult = NonNullable<Awaited<ReturnType<typeof deleteSampleData>>>
+
+    export type DeleteSampleDataMutationError = ErrorType<unknown>
+
+
+    /**
+ * @summary Delete only seeded fictional sample businesses and their related records
+ */
+export const useDeleteSampleData = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteSampleData>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteSampleData>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getDeleteSampleDataMutationOptions(options));
+    }
+
 export const getListCompaniesUrl = (params?: ListCompaniesParams,) => {
   const normalizedParams = new URLSearchParams();
 
@@ -800,6 +1205,236 @@ export const useUpdateCompany = <TError = ErrorType<unknown>,
       > => {
       return useMutation(getUpdateCompanyMutationOptions(options));
     }
+
+export const getRecheckCompanyUrl = (companyId: number,) => {
+
+
+
+
+  return `/api/companies/${companyId}/recheck`
+}
+
+/**
+ * @summary Queue fresh website checks for one company
+ */
+export const recheckCompany = async (companyId: number, options?: Parameters<typeof customFetch>[1]): Promise<ResearchJob> => {
+
+  return customFetch<ResearchJob>(getRecheckCompanyUrl(companyId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getRecheckCompanyMutationKey = () => ['recheckCompany'] as const;
+
+export const getRecheckCompanyMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof recheckCompany>>, TError,RecheckCompanyMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof recheckCompany>>, TError,RecheckCompanyMutationVariables, TContext> => {
+
+const mutationKey = getRecheckCompanyMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof recheckCompany>>, RecheckCompanyMutationVariables> = (props) => {
+          const {companyId} = props ?? {};
+
+          return  recheckCompany(companyId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RecheckCompanyMutationResult = NonNullable<Awaited<ReturnType<typeof recheckCompany>>>
+
+    export type RecheckCompanyMutationError = ErrorType<void>
+    export type RecheckCompanyMutationVariables = {companyId: number}
+
+    /**
+ * @summary Queue fresh website checks for one company
+ */
+export const useRecheckCompany = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof recheckCompany>>, TError,RecheckCompanyMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof recheckCompany>>,
+        TError,
+        RecheckCompanyMutationVariables,
+        TContext
+      > => {
+      return useMutation(getRecheckCompanyMutationOptions(options));
+    }
+
+export const getRefreshOsmCompanyUrl = (companyId: number,) => {
+
+
+
+
+  return `/api/companies/${companyId}/refresh-osm`
+}
+
+/**
+ * @summary Refresh a stale company record from OpenStreetMap
+ */
+export const refreshOsmCompany = async (companyId: number, options?: Parameters<typeof customFetch>[1]): Promise<ResearchJob> => {
+
+  return customFetch<ResearchJob>(getRefreshOsmCompanyUrl(companyId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getRefreshOsmCompanyMutationKey = () => ['refreshOsmCompany'] as const;
+
+export const getRefreshOsmCompanyMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof refreshOsmCompany>>, TError,RefreshOsmCompanyMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof refreshOsmCompany>>, TError,RefreshOsmCompanyMutationVariables, TContext> => {
+
+const mutationKey = getRefreshOsmCompanyMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof refreshOsmCompany>>, RefreshOsmCompanyMutationVariables> = (props) => {
+          const {companyId} = props ?? {};
+
+          return  refreshOsmCompany(companyId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RefreshOsmCompanyMutationResult = NonNullable<Awaited<ReturnType<typeof refreshOsmCompany>>>
+
+    export type RefreshOsmCompanyMutationError = ErrorType<void>
+    export type RefreshOsmCompanyMutationVariables = {companyId: number}
+
+    /**
+ * @summary Refresh a stale company record from OpenStreetMap
+ */
+export const useRefreshOsmCompany = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof refreshOsmCompany>>, TError,RefreshOsmCompanyMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof refreshOsmCompany>>,
+        TError,
+        RefreshOsmCompanyMutationVariables,
+        TContext
+      > => {
+      return useMutation(getRefreshOsmCompanyMutationOptions(options));
+    }
+
+export const getGetCompanyScreenshotUrl = (companyId: number,
+    variant: 'desktop' | 'mobile',) => {
+
+
+
+
+  return `/api/companies/${companyId}/screenshots/${variant}`
+}
+
+/**
+ * @summary Read a private desktop or mobile website screenshot
+ */
+export const getCompanyScreenshot = async (companyId: number,
+    variant: 'desktop' | 'mobile', options?: Parameters<typeof customFetch>[1]): Promise<Blob> => {
+
+  return customFetch<Blob>(getGetCompanyScreenshotUrl(companyId,variant),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetCompanyScreenshotQueryKey = (companyId: number,
+    variant: 'desktop' | 'mobile',) => {
+    return [
+    `/api/companies/${companyId}/screenshots/${variant}`
+    ] as const;
+    }
+
+
+export const getGetCompanyScreenshotQueryOptions = <TData = Awaited<ReturnType<typeof getCompanyScreenshot>>, TError = ErrorType<void>>(companyId: number,
+    variant: 'desktop' | 'mobile', options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getCompanyScreenshot>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetCompanyScreenshotQueryKey(companyId,variant);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getCompanyScreenshot>>> = ({ signal }) => getCompanyScreenshot(companyId,variant, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: companyId !== null && companyId !== undefined && variant !== null && variant !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getCompanyScreenshot>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetCompanyScreenshotQueryResult = NonNullable<Awaited<ReturnType<typeof getCompanyScreenshot>>>
+export type GetCompanyScreenshotQueryError = ErrorType<void>
+
+
+/**
+ * @summary Read a private desktop or mobile website screenshot
+ */
+
+export function useGetCompanyScreenshot<TData = Awaited<ReturnType<typeof getCompanyScreenshot>>, TError = ErrorType<void>>(
+ companyId: number,
+    variant: 'desktop' | 'mobile', options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getCompanyScreenshot>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetCompanyScreenshotQueryOptions(companyId,variant,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getUpdateCompanyStatusUrl = (companyId: number,) => {
 

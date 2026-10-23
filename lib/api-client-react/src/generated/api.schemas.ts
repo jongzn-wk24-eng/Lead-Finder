@@ -23,6 +23,15 @@ export interface AuthInput {
   password: string;
 }
 
+export type CompanySource = typeof CompanySource[keyof typeof CompanySource];
+
+
+export const CompanySource = {
+  openstreetmap: 'openstreetmap',
+  manual: 'manual',
+  sample: 'sample',
+} as const;
+
 export interface Company {
   id: number;
   placeId: string;
@@ -36,6 +45,16 @@ export interface Company {
   websiteUrl?: string | null;
   /** @nullable */
   mapsUrl?: string | null;
+  source: CompanySource;
+  /** @nullable */
+  osmType: string | null;
+  /** @nullable */
+  osmId: string | null;
+  /** @nullable */
+  osmUpdatedAt: string | null;
+  ratingAvailable: boolean;
+  valueScoreMethod: string;
+  valueScoreDetails: string[];
   rating: number;
   reviewCount: number;
   /** @nullable */
@@ -65,6 +84,15 @@ export interface Company {
   isSampleData: boolean;
 }
 
+export type CheckCheckStatus = typeof CheckCheckStatus[keyof typeof CheckCheckStatus];
+
+
+export const CheckCheckStatus = {
+  completed: 'completed',
+  failed: 'failed',
+  skipped: 'skipped',
+} as const;
+
 export interface Check {
   checkedAt: string;
   websiteType: string;
@@ -85,6 +113,8 @@ export interface Check {
   /** @nullable */
   hasContactForm?: boolean | null;
   /** @nullable */
+  hasContactPage?: boolean | null;
+  /** @nullable */
   siteBuilder?: string | null;
   /** @nullable */
   designScore?: number | null;
@@ -92,6 +122,14 @@ export interface Check {
   designReason?: string | null;
   /** @nullable */
   ctaObvious?: boolean | null;
+  retryCount?: number;
+  checkStatus?: CheckCheckStatus;
+  /** @nullable */
+  lastError?: string | null;
+  /** @nullable */
+  screenshotDesktopUrl?: string | null;
+  /** @nullable */
+  screenshotMobileUrl?: string | null;
 }
 
 export interface ActivityItem {
@@ -129,6 +167,79 @@ export type CompanyDetail = Company & {
   activity?: ActivityItem[];
   outreach?: Outreach[];
 };
+
+export interface SearchInput {
+  /**
+     * @minItems 1
+     * @maxItems 20
+     * @items.minLength 1
+     * @items.maxLength 100
+     */
+  areas: string[];
+  /**
+     * @minItems 1
+     * @maxItems 30
+     * @items.minLength 1
+     * @items.maxLength 100
+     */
+  keywords: string[];
+}
+
+export interface SearchEstimate {
+  areaCount: number;
+  keywordCount: number;
+  geocodingCalls: number;
+  cachedAreas: string[];
+  overpassCalls: number;
+  totalCalls: number;
+  strategy: string;
+  maxListingsPerArea: number;
+}
+
+export type ResearchJobKind = typeof ResearchJobKind[keyof typeof ResearchJobKind];
+
+
+export const ResearchJobKind = {
+  search: 'search',
+  recheck: 'recheck',
+  osm_refresh: 'osm_refresh',
+} as const;
+
+export type ResearchJobStatus = typeof ResearchJobStatus[keyof typeof ResearchJobStatus];
+
+
+export const ResearchJobStatus = {
+  queued: 'queued',
+  running: 'running',
+  completed: 'completed',
+  cancelled: 'cancelled',
+  failed: 'failed',
+} as const;
+
+export interface ResearchJob {
+  id: string;
+  kind: ResearchJobKind;
+  status: ResearchJobStatus;
+  phase: string;
+  total: number;
+  completed: number;
+  requestsEstimated: number;
+  requestsMade: number;
+  newCompanies: number;
+  updatedCompanies: number;
+  skippedCompanies: number;
+  checksFailed: number;
+  /** @nullable */
+  currentLabel: string | null;
+  /** @nullable */
+  error: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SampleDeleteResult {
+  deletedCompanies: number;
+}
 
 export interface Followup {
   companyId: number;
@@ -177,7 +288,7 @@ export interface Dashboard {
   limits: DashboardLimits;
   byStatus: DashboardByStatusItem[];
   bySequence: DashboardBySequenceItem[];
-  placesSearchCount: number;
+  osmRequestsCount: number;
   aiCallsToday: number;
 }
 

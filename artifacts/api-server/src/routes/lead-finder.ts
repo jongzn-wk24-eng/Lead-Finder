@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import {
   CreateCompanyBody,
+  EstimateSearchBody,
   GetCompanyParams,
   ListActivityQueryParams,
   ListCompaniesQueryParams,
@@ -11,11 +12,14 @@ import {
   UpdateCompanyStatusBody,
   UpdateSettingsBody,
   UpdateCompanyBody,
+  StartSearchJobBody,
 } from "@workspace/api-zod";
 import {
   addActivity,
   createCompany,
+  deleteSampleData,
   generateDraft,
+  getCompanyScreenshotPath,
   getCompany,
   getDashboard,
   getSettings,
@@ -32,6 +36,15 @@ import {
   COMPANY_STATUSES,
 } from "../lib/lead-db";
 import { authState, login, logout, requireLeadAuth } from "../lib/lead-auth";
+import { estimateOsmRequests } from "../lib/openstreetmap";
+import {
+  cancelResearchJob,
+  getResearchJob,
+  startCompanyRecheck,
+  startOsmRefresh,
+  startOsmSearch,
+} from "../lib/research-jobs";
+import { getPrivateScreenshot } from "../lib/screenshot-storage";
 
 const router: IRouter = Router();
 const parseCompanyId = (value: unknown) => {
@@ -66,6 +79,64 @@ router.post("/auth/logout", (_req, res) => {
 });
 
 router.use(requireLeadAuth);
+
+router.post("/search/estimate", (req, res) => {
+  const body = EstimateSearchBody.safeParse(req.body);
+  if (!body.success) {
+    res.status(400).json({ error: "Choose at least one valid area and keyword." });
+    return;
+  }
+  try {
+    res.json(estimateOsmRequests(body.data.areas, body.data.keywords));
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : "Could not estimate OpenStreetMap requests." });
+  }
+});
+
+router.post("/search/jobs", (req, res) => {
+  const body = StartSearchJobBody.safeParse(req.body);
+  if (!body.success) {
+    res.status(400).json({ error: "Choose at least one valid area and keyword." });
+    return;
+  }
+  try {
+    res.status(202).json(startOsmSearch(body.data));
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : "Could not start OpenStreetMap search." });
+  }
+});
+
+router.get("/search/jobs/:jobId", (req, res) => {
+  const jobId = Array.isArray(req.params.jobId) ? req.params.jobId[0] : req.params.jobId;
+  if (!jobId || jobId.length > 64) {
+    res.status(400).json({ error: "Invalid research job id." });
+    return;
+  }
+  const job = getResearchJob(jobId);
+  if (!job) {
+    res.status(404).json({ error: "Research job not found." });
+    return;
+  }
+  res.json(job);
+});
+
+router.post("/search/jobs/:jobId/cancel", (req, res) => {
+  const jobId = Array.isArray(req.params.jobId) ? req.params.jobId[0] : req.params.jobId;
+  if (!jobId || jobId.length > 64) {
+    res.status(400).json({ error: "Invalid research job id." });
+    return;
+  }
+  const job = cancelResearchJob(jobId);
+  if (!job) {
+    res.status(404).json({ error: "Research job not found." });
+    return;
+  }
+  res.json(job);
+});
+
+router.delete("/sample-data", (_req, res) => {
+  res.json(deleteSampleData());
+});
 
 router.get("/dashboard", (_req, res) => {
   res.json(getDashboard());
@@ -102,6 +173,68 @@ router.get("/companies/:companyId", (req, res) => {
     return;
   }
   res.json(company);
+});
+
+router.get("/companies/:companyId/screenshots/:variant", async (req, res): Promise<void> => {
+  const id = parseCompanyId(req.params.companyId);
+  const variant = Array.isArray(req.params.variant) ? req.params.variant[0] : req.params.variant;
+  if (!id || (variant !== "desktop" && variant !== "mobile")) {
+    res.status(400).json({ error: "Invalid screenshot request." });
+    return;
+  }
+  const objectPath = getCompanyScreenshotPath(id, variant);
+  if (!objectPath) {
+    res.status(404).json({ error: "Screenshot not found." });
+    return;
+  }
+  try {
+    const file = await getPrivateScreenshot(objectPath);
+    const [metadata] = await file.getMetadata();
+    res.setHeader("Content-Type", metadata.contentType ?? "image/png");
+    res.setHeader("Cache-Control", "private, no-store");
+    file.createReadStream()
+      .on("error", (error) => {
+        req.log.error({ companyId: id, variant, err: error }, "Failed to stream private screenshot");
+        if (!res.headersSent) res.status(404).end();
+        else res.destroy(error);
+      })
+      .pipe(res);
+  } catch (error) {
+    req.log.warn({ companyId: id, variant, err: error }, "Private screenshot was not available");
+    res.status(404).json({ error: "Screenshot not found." });
+  }
+});
+
+router.post("/companies/:companyId/recheck", (req, res) => {
+  const id = parseCompanyId(req.params.companyId);
+  if (!id) {
+    res.status(400).json({ error: "Invalid company id." });
+    return;
+  }
+  if (!getCompany(id)) {
+    res.status(404).json({ error: "Company not found." });
+    return;
+  }
+  res.status(202).json(startCompanyRecheck(id));
+});
+
+router.post("/companies/:companyId/refresh-osm", (req, res) => {
+  const id = parseCompanyId(req.params.companyId);
+  if (!id) {
+    res.status(400).json({ error: "Invalid company id." });
+    return;
+  }
+  const company = getCompany(id);
+  if (!company) {
+    res.status(404).json({ error: "Company not found." });
+    return;
+  }
+  const job = startOsmRefresh(id);
+  if (!job) {
+    res.status(409).json({ error: "Only OpenStreetMap businesses can be refreshed from OSM." });
+    return;
+  }
+  res.status(202).json(job);
 });
 
 router.patch("/companies/:companyId", (req, res) => {

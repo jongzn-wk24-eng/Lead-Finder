@@ -50,7 +50,7 @@ const DEFAULT_KEYWORDS = [
 ];
 
 const DEFAULT_AI_INSTRUCTION =
-  "Write one short cold email (max 100 words) from Dylan Jong, a freelance web designer, to a local business owner in Malaysia. Use only the facts provided. Never invent numbers or claims. Use the company name and ONE real finding from the data; if none is provided, reply 'Need a real finding first.' Follow the structure of the template exactly: found on Google Maps and checked on phone + the finding + 'That might be costing you some enquiries'; one sentence on who I am; one small free offer (free concept of the top of their homepage, no strings, ask 'Want me to send it over?'); one portfolio link; one opt-out line; sign-off. Simple spoken English, short sentences. Avoid: 'I hope this email finds you well', exclamation marks, ALL CAPS, buzzwords, guarantees, percentages, prices. Use 'might' or 'seems' for anything not directly measured. Also write a WhatsApp version, max 40 words.";
+  "Write one short cold email (max 100 words) from Dylan Jong, a freelance web designer, to a local business owner in Malaysia. Use only the facts provided. Never invent numbers or claims. Mention the company and ONE real finding from stored website checks; if none is provided, reply 'Need a real finding first.' Do not imply a relationship or claim you checked the site on a phone. Say the business was listed on OpenStreetMap only when that is its source. Include one sentence on who I am; one small free offer (free homepage concept, no strings, ask 'Want me to send it over?'); one portfolio link; one opt-out line; sign-off. Simple spoken English, short sentences. Avoid exclamation marks, ALL CAPS, buzzwords, guarantees, percentages, prices, and claims about enquiries. Use 'might' or 'seems' for anything not directly measured. Also write a WhatsApp version, max 40 words.";
 
 const dbFile = process.env.LEAD_DB_PATH
   ? path.resolve(process.env.LEAD_DB_PATH)
@@ -86,7 +86,16 @@ leadDb.exec(`
     notes TEXT NOT NULL DEFAULT '',
     fetched_at TEXT NOT NULL,
     created_at TEXT NOT NULL,
-    is_sample_data INTEGER NOT NULL DEFAULT 0
+    is_sample_data INTEGER NOT NULL DEFAULT 0,
+    source TEXT NOT NULL DEFAULT 'manual',
+    osm_type TEXT,
+    osm_id TEXT,
+    osm_updated_at TEXT,
+    rating_available INTEGER NOT NULL DEFAULT 1,
+    value_score_method TEXT NOT NULL DEFAULT 'manual',
+    value_score_base INTEGER NOT NULL DEFAULT 0,
+    value_score_details_json TEXT NOT NULL DEFAULT '[]',
+    osm_opening_hours TEXT
   );
   CREATE TABLE IF NOT EXISTS checks (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -101,10 +110,16 @@ leadDb.exec(`
     has_tel_link INTEGER,
     has_whatsapp_link INTEGER,
     has_contact_form INTEGER,
+    has_contact_page INTEGER,
     site_builder TEXT,
     design_score INTEGER,
     design_reason TEXT,
-    cta_obvious INTEGER
+    cta_obvious INTEGER,
+    retry_count INTEGER NOT NULL DEFAULT 0,
+    check_status TEXT NOT NULL DEFAULT 'completed',
+    last_error TEXT,
+    screenshot_desktop_path TEXT,
+    screenshot_mobile_path TEXT
   );
   CREATE TABLE IF NOT EXISTS activity (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -143,9 +158,71 @@ leadDb.exec(`
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS osm_area_cache (
+    area_key TEXT PRIMARY KEY,
+    area_name TEXT NOT NULL,
+    south REAL NOT NULL,
+    west REAL NOT NULL,
+    north REAL NOT NULL,
+    east REAL NOT NULL,
+    fetched_at TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS research_jobs (
+    id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    status TEXT NOT NULL,
+    phase TEXT NOT NULL,
+    total INTEGER NOT NULL DEFAULT 0,
+    completed INTEGER NOT NULL DEFAULT 0,
+    requests_estimated INTEGER NOT NULL DEFAULT 0,
+    requests_made INTEGER NOT NULL DEFAULT 0,
+    new_companies INTEGER NOT NULL DEFAULT 0,
+    updated_companies INTEGER NOT NULL DEFAULT 0,
+    skipped_companies INTEGER NOT NULL DEFAULT 0,
+    checks_failed INTEGER NOT NULL DEFAULT 0,
+    current_label TEXT,
+    error TEXT,
+    cancel_requested INTEGER NOT NULL DEFAULT 0,
+    input_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
   CREATE INDEX IF NOT EXISTS idx_activity_company_time ON activity(company_id, timestamp DESC);
   CREATE INDEX IF NOT EXISTS idx_outreach_company_time ON outreach(company_id, sent_at DESC);
   CREATE INDEX IF NOT EXISTS idx_outreach_sent_channel ON outreach(channel, sent_at);
+`);
+
+function addColumnIfMissing(table: string, column: string, definition: string) {
+  const columns = leadDb.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+  if (!columns.some((item) => item.name === column)) {
+    leadDb.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
+}
+
+for (const [column, definition] of [
+  ["source", "TEXT NOT NULL DEFAULT 'manual'"],
+  ["osm_type", "TEXT"],
+  ["osm_id", "TEXT"],
+  ["osm_updated_at", "TEXT"],
+  ["rating_available", "INTEGER NOT NULL DEFAULT 1"],
+  ["value_score_method", "TEXT NOT NULL DEFAULT 'manual'"],
+  ["value_score_base", "INTEGER NOT NULL DEFAULT 0"],
+  ["value_score_details_json", "TEXT NOT NULL DEFAULT '[]'"],
+  ["osm_opening_hours", "TEXT"],
+] as const) addColumnIfMissing("companies", column, definition);
+
+for (const [column, definition] of [
+  ["retry_count", "INTEGER NOT NULL DEFAULT 0"],
+  ["check_status", "TEXT NOT NULL DEFAULT 'completed'"],
+  ["last_error", "TEXT"],
+  ["screenshot_desktop_path", "TEXT"],
+  ["screenshot_mobile_path", "TEXT"],
+  ["has_contact_page", "INTEGER"],
+] as const) addColumnIfMissing("checks", column, definition);
+
+leadDb.exec(`
+  UPDATE companies SET source = 'sample', value_score_method = 'sample legacy score'
+  WHERE is_sample_data = 1 AND source = 'manual';
 `);
 
 const DEFAULT_SETTINGS = {
@@ -174,6 +251,13 @@ export type Company = {
   phone: string | null;
   websiteUrl: string | null;
   mapsUrl: string | null;
+  source: "openstreetmap" | "manual" | "sample";
+  osmType: string | null;
+  osmId: string | null;
+  osmUpdatedAt: string | null;
+  ratingAvailable: boolean;
+  valueScoreMethod: string;
+  valueScoreDetails: string[];
   rating: number;
   reviewCount: number;
   priceLevel: string | null;
@@ -215,6 +299,13 @@ function toCompany(row: CompanyRow): Company {
   } catch {
     reasons = [];
   }
+  let valueScoreDetails: string[] = [];
+  try {
+    const parsed: unknown = JSON.parse(String(row.value_score_details_json ?? "[]"));
+    if (Array.isArray(parsed)) valueScoreDetails = parsed.filter((item) => typeof item === "string");
+  } catch {
+    valueScoreDetails = [];
+  }
   return {
     id: Number(row.id),
     placeId: String(row.place_id),
@@ -225,6 +316,13 @@ function toCompany(row: CompanyRow): Company {
     phone: row.phone == null ? null : String(row.phone),
     websiteUrl: row.website_url == null ? null : String(row.website_url),
     mapsUrl: row.maps_url == null ? null : String(row.maps_url),
+    source: String(row.source ?? (Number(row.is_sample_data ?? 0) ? "sample" : "manual")) as Company["source"],
+    osmType: row.osm_type == null ? null : String(row.osm_type),
+    osmId: row.osm_id == null ? null : String(row.osm_id),
+    osmUpdatedAt: row.osm_updated_at == null ? null : String(row.osm_updated_at),
+    ratingAvailable: Number(row.rating_available ?? 1) === 1,
+    valueScoreMethod: String(row.value_score_method ?? "manual"),
+    valueScoreDetails,
     rating: Number(row.rating ?? 0),
     reviewCount: Number(row.review_count ?? 0),
     priceLevel: row.price_level == null ? null : String(row.price_level),
@@ -328,8 +426,8 @@ function seedSampleCompanies() {
       place_id, name, address, area, keyword, phone, website_url, maps_url,
       rating, review_count, price_level, email, whatsapp, status,
       value_score, problem_score, opportunity_score, reasons_json, finding_type,
-      fetched_at, created_at, is_sample_data
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+      fetched_at, created_at, is_sample_data, source, rating_available, value_score_method
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'sample', 1, 'sample legacy score')
   `);
   const insertCheck = leadDb.prepare(`
     INSERT INTO checks (
@@ -427,6 +525,20 @@ function seedSampleCompanies() {
 }
 
 seedSettings();
+const savedAiInstruction = leadDb.prepare("SELECT value_json FROM settings WHERE key = 'aiInstruction'").get() as { value_json: string } | undefined;
+if (savedAiInstruction) {
+  try {
+    const instruction = JSON.parse(savedAiInstruction.value_json);
+    if (typeof instruction === "string" && /Google Maps|checked on phone/i.test(instruction)) {
+      setSetting(
+        "aiInstruction",
+        instruction.replace(/Google Maps/gi, "OpenStreetMap").replace(/and checked on phone/gi, "and checked the website"),
+      );
+    }
+  } catch {
+    // Keep the saved setting untouched when its stored format is invalid.
+  }
+}
 seedSampleCompanies();
 
 function seedSamplePipelineOnce() {
@@ -642,9 +754,16 @@ export function getCompany(id: number) {
         psi_mobile_score AS psiMobileScore, lcp_seconds AS lcpSeconds,
         https, has_viewport AS hasViewport, copyright_year AS copyrightYear,
         has_tel_link AS hasTelLink, has_whatsapp_link AS hasWhatsappLink,
-        has_contact_form AS hasContactForm, site_builder AS siteBuilder,
+        has_contact_form AS hasContactForm, has_contact_page AS hasContactPage,
+        site_builder AS siteBuilder,
         design_score AS designScore, design_reason AS designReason,
-        cta_obvious AS ctaObvious FROM checks WHERE company_id = ? ORDER BY checked_at DESC`,
+        cta_obvious AS ctaObvious, retry_count AS retryCount,
+        check_status AS checkStatus, last_error AS lastError,
+        CASE WHEN screenshot_desktop_path IS NOT NULL
+          THEN '/api/companies/' || company_id || '/screenshots/desktop' END AS screenshotDesktopUrl,
+        CASE WHEN screenshot_mobile_path IS NOT NULL
+          THEN '/api/companies/' || company_id || '/screenshots/mobile' END AS screenshotMobileUrl
+       FROM checks WHERE company_id = ? ORDER BY checked_at DESC`,
     )
     .all(id);
   const activity = listActivity({ companyId: id, limit: 50 });
@@ -693,6 +812,100 @@ export function createCompany(input: Record<string, unknown>) {
   const id = Number(result.lastInsertRowid);
   addActivity(id, "status_changed", null, null, "Company added manually.");
   return getCompany(id);
+}
+
+export function deleteSampleData() {
+  const deletedCompanies = Number(
+    (leadDb.prepare("SELECT COUNT(*) AS count FROM companies WHERE is_sample_data = 1").get() as { count: number }).count,
+  );
+  leadDb.prepare("DELETE FROM companies WHERE is_sample_data = 1").run();
+  return { deletedCompanies };
+}
+
+export type WebsiteCheckInput = {
+  websiteType: "own" | "social" | "down" | "none";
+  psiMobileScore: number | null;
+  lcpSeconds: number | null;
+  https: boolean | null;
+  hasViewport: boolean | null;
+  copyrightYear: number | null;
+  hasTelLink: boolean | null;
+  hasWhatsappLink: boolean | null;
+  hasContactForm: boolean | null;
+  hasContactPage: boolean | null;
+  siteBuilder: string | null;
+  retryCount: number;
+  checkStatus: "completed" | "failed" | "skipped";
+  lastError: string | null;
+  screenshotDesktopPath: string | null;
+  screenshotMobilePath: string | null;
+  problemScore: number;
+  reasons: string[];
+  findingType: string | null;
+  email: string | null;
+  whatsapp: string | null;
+};
+
+export function saveWebsiteCheck(companyId: number, input: WebsiteCheckInput) {
+  const now = nowIso();
+  const company = leadDb.prepare("SELECT value_score FROM companies WHERE id = ?").get(companyId) as { value_score: number } | undefined;
+  if (!company) return false;
+  leadDb.prepare(`
+    UPDATE companies SET
+      email = COALESCE(?, email),
+      whatsapp = COALESCE(?, whatsapp),
+      problem_score = ?,
+      opportunity_score = value_score + ?,
+      reasons_json = ?,
+      finding_type = ?,
+      fetched_at = ?
+    WHERE id = ?
+  `).run(
+    input.email,
+    input.whatsapp,
+    input.problemScore,
+    input.problemScore,
+    JSON.stringify(input.reasons.slice(0, 3)),
+    input.findingType,
+    now,
+    companyId,
+  );
+  leadDb.prepare(`
+    INSERT INTO checks (
+      company_id, checked_at, website_type, psi_mobile_score, lcp_seconds,
+      https, has_viewport, copyright_year, has_tel_link, has_whatsapp_link,
+      has_contact_form, has_contact_page, site_builder, design_score, design_reason, cta_obvious,
+      retry_count, check_status, last_error, screenshot_desktop_path, screenshot_mobile_path
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 'Design scoring is not included in Phase 2.', NULL, ?, ?, ?, ?, ?)
+  `).run(
+    companyId,
+    now,
+    input.websiteType,
+    input.psiMobileScore,
+    input.lcpSeconds,
+    input.https == null ? null : Number(input.https),
+    input.hasViewport == null ? null : Number(input.hasViewport),
+    input.copyrightYear,
+    input.hasTelLink == null ? null : Number(input.hasTelLink),
+    input.hasWhatsappLink == null ? null : Number(input.hasWhatsappLink),
+    input.hasContactForm == null ? null : Number(input.hasContactForm),
+    input.hasContactPage == null ? null : Number(input.hasContactPage),
+    input.siteBuilder,
+    input.retryCount,
+    input.checkStatus,
+    input.lastError,
+    input.screenshotDesktopPath,
+    input.screenshotMobilePath,
+  );
+  return true;
+}
+
+export function getCompanyScreenshotPath(companyId: number, variant: "desktop" | "mobile") {
+  const column = variant === "desktop" ? "screenshot_desktop_path" : "screenshot_mobile_path";
+  const row = leadDb.prepare(
+    `SELECT ${column} AS screenshotPath FROM checks WHERE company_id = ? AND ${column} IS NOT NULL ORDER BY checked_at DESC LIMIT 1`,
+  ).get(companyId) as { screenshotPath: string } | undefined;
+  return row?.screenshotPath ?? null;
 }
 
 export function updateCompany(id: number, patch: Record<string, unknown>) {
@@ -844,7 +1057,7 @@ export function getDashboard() {
       "SELECT sequence_no AS sequenceNo, COUNT(*) AS count FROM outreach WHERE channel = 'email' AND sent_at IS NOT NULL GROUP BY sequence_no ORDER BY sequence_no",
     )
     .all();
-  const placesSearchCount = count(
+  const osmRequestsCount = count(
     "SELECT COALESCE(SUM(api_calls), 0) AS count FROM searches WHERE substr(ran_at, 1, 7) = ?",
     malaysiaDate().slice(0, 7),
   );
@@ -866,7 +1079,7 @@ export function getDashboard() {
     },
     byStatus,
     bySequence,
-    placesSearchCount,
+    osmRequestsCount,
     aiCallsToday: 0,
   };
 }
@@ -886,7 +1099,7 @@ export function generateDraft(id: number) {
   let finding: string;
   switch (company.findingType) {
     case "no_contact_button":
-      finding = "I couldn't find a WhatsApp or call button.";
+      finding = "I couldn't find a phone or WhatsApp link on the homepage.";
       break;
     case "slow_mobile": {
       const time = leadFinding.match(/about ([\d.]+) seconds/i)?.[1];
@@ -909,7 +1122,9 @@ export function generateDraft(id: number) {
       break;
     }
     case "no_website":
-      finding = "I couldn't find a website for it, only a social page.";
+      finding = company.websiteUrl
+        ? "I could only find a social page, not a website."
+        : "I couldn't find a website listed for your business.";
       break;
     case "cta_hidden":
       finding = "The main contact button isn't easy to spot.";
@@ -924,9 +1139,13 @@ export function generateDraft(id: number) {
   }
   const greeting = company.firstName.trim() ? `Hi ${company.firstName.trim()},` : "Hi there,";
   const subject = `Quick note about ${company.name}'s website`;
+  const sourceIntro =
+    company.source === "openstreetmap"
+      ? `I came across your business on OpenStreetMap.`
+      : "I came across your business.";
   const emailBody = `${greeting}
 
-I found ${company.name} on Google Maps and had a look at your website on my phone. ${finding} That might be costing you some enquiries.
+${sourceIntro} ${finding} That might be costing you some enquiries.
 
 I'm ${settings.myName}, a web designer. I build custom websites that make it easier for visitors to call, WhatsApp or book, so more of them turn into enquiries.
 
@@ -939,7 +1158,7 @@ If you're not interested, just tell me and I won't message again.
 ${settings.myName}
 ${settings.myTitle}
 WhatsApp: ${settings.myWhatsapp}`;
-  const whatsappBody = `Hi ${company.firstName.trim() || "there"}, this is ${settings.myName}, a web designer. I checked ${company.name}'s website on my phone: ${finding} Can I send you a free concept of a better homepage top section? No strings. My work: ${settings.portfolioUrl}`;
+  const whatsappBody = `Hi ${company.firstName.trim() || "there"}, this is ${settings.myName}, a web designer. I came across ${company.name} and noticed: ${finding} Can I send you a free homepage concept? No strings. My work: ${settings.portfolioUrl}`;
   addActivity(id, "generated", null, null, "Generated an email and WhatsApp draft.");
   return {
     subject,

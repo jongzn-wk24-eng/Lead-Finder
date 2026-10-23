@@ -5,6 +5,7 @@
  * KL Lead Finder API
  * OpenAPI spec version: 0.1.0
  */
+import type { CompanySource } from './companySource';
 
 export interface Company {
   id: number;
@@ -19,6 +20,16 @@ export interface Company {
   websiteUrl?: string | null;
   /** @nullable */
   mapsUrl?: string | null;
+  source: CompanySource;
+  /** @nullable */
+  osmType: string | null;
+  /** @nullable */
+  osmId: string | null;
+  /** @nullable */
+  osmUpdatedAt: Date | null;
+  ratingAvailable: boolean;
+  valueScoreMethod: string;
+  valueScoreDetails: string[];
   rating: number;
   reviewCount: number;
   /** @nullable */

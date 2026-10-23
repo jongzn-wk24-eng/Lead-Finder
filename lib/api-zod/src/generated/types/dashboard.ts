@@ -17,6 +17,6 @@ export interface Dashboard {
   limits: DashboardLimits;
   byStatus: DashboardByStatusItem[];
   bySequence: DashboardBySequenceItem[];
-  placesSearchCount: number;
+  osmRequestsCount: number;
   aiCallsToday: number;
 }
