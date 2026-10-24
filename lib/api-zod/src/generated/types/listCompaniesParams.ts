@@ -8,6 +8,7 @@
 
 export type ListCompaniesParams = {
 search?: string;
+keyword?: string;
 status?: string;
 area?: string;
 hasWebsite?: boolean;

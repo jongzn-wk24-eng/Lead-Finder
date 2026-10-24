@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Urbanist:wght@400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
 @import 'tailwindcss';
 @import 'tw-animate-css';
 @plugin "@tailwindcss/typography";
@@ -21,17 +21,17 @@
   --radius-sm: calc(var(--radius) - 4px); --radius-md: calc(var(--radius) - 2px); --radius-lg: var(--radius); --radius-xl: calc(var(--radius) + 4px);
 }
 :root {
-  --background: 100 8% 94%; --foreground: 140 40% 10%; --border: 100 9% 88%;
-  --card: 0 0% 100%; --card-foreground: 140 40% 10%; --card-border: 100 9% 90%;
-  --sidebar: 141 60% 15%; --sidebar-foreground: 90 30% 96%; --sidebar-border: 141 40% 22%;
-  --sidebar-primary: 87 81% 69%; --sidebar-primary-foreground: 141 60% 15%; --sidebar-accent: 141 45% 21%; --sidebar-accent-foreground: 90 30% 96%; --sidebar-ring: 87 81% 69%;
-  --popover: 90 20% 99%; --popover-foreground: 140 40% 10%;
-  --primary: 139.565217 60.526316% 14.901961%; --primary-foreground: 87 70% 92%; --secondary: 90 15% 92%; --secondary-foreground: 140 40% 10%;
-  --muted: 100 10% 93%; --muted-foreground: 140 8% 40%; --accent: 86.769231 81.25% 68.627451%; --accent-foreground: 139.565217 60.526316% 14.901961%;
-  --destructive: 4 55% 52%; --destructive-foreground: 0 0% 98%; --input: 100 9% 86%; --ring: 87 81% 69%;
-  --chart-1: 141 60% 15%; --chart-2: 87 81% 69%; --chart-3: 135 33% 36%; --chart-4: 34 75% 56%; --chart-5: 100 30% 55%;
-  --app-font-sans: 'Urbanist', ui-sans-serif, system-ui, sans-serif; --app-font-serif: 'Urbanist', ui-sans-serif, sans-serif; --app-font-mono: 'Urbanist', ui-sans-serif, sans-serif;
-  --radius: 1rem; --shadow: 0 8px 30px rgba(15, 61, 30, .06); --spacing: .25rem;
+  --background: 60 9% 98%; --foreground: 240 4% 11%; --border: 24 6% 90%;
+  --card: 0 0% 100%; --card-foreground: 240 4% 11%; --card-border: 24 6% 90%;
+  --sidebar: 0 0% 100%; --sidebar-foreground: 240 4% 11%; --sidebar-border: 24 6% 90%;
+  --sidebar-primary: 226 81% 55%; --sidebar-primary-foreground: 0 0% 100%; --sidebar-accent: 60 5% 96%; --sidebar-accent-foreground: 240 4% 11%; --sidebar-ring: 226 81% 55%;
+  --popover: 0 0% 100%; --popover-foreground: 240 4% 11%;
+  --primary: 226 81% 55%; --primary-foreground: 0 0% 100%; --secondary: 60 5% 96%; --secondary-foreground: 240 4% 11%;
+  --muted: 60 5% 96%; --muted-foreground: 240 2% 43%; --accent: 226 80% 96%; --accent-foreground: 226 70% 35%;
+  --destructive: 0 55% 42%; --destructive-foreground: 0 0% 100%; --input: 24 6% 90%; --ring: 226 81% 55%;
+  --chart-1: 226 81% 55%; --chart-2: 226 50% 75%; --chart-3: 240 2% 43%; --chart-4: 35 60% 55%; --chart-5: 160 30% 45%;
+  --app-font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif; --app-font-serif: 'Inter', ui-sans-serif, system-ui, sans-serif; --app-font-mono: ui-monospace, 'SF Mono', Menlo, monospace;
+  --radius: 8px; --shadow: none; --spacing: .25rem;
   --button-outline: rgba(0,0,0,.1); --badge-outline: rgba(0,0,0,.05); --elevate-1: rgba(0,0,0,.03); --elevate-2: rgba(0,0,0,.08);
   --opaque-button-border-intensity: -8;
   --sidebar-primary-border: hsl(var(--sidebar-primary)); --sidebar-accent-border: hsl(var(--sidebar-accent)); --primary-border: hsl(var(--primary));
@@ -52,15 +52,8 @@
   body { @apply font-sans antialiased bg-background text-foreground; }
 }
 @layer utilities { .font-display { font-family: var(--app-font-serif); } .font-mono-ui { font-family: var(--app-font-mono); } }
-* { scrollbar-color: #b9c4b5 transparent; scrollbar-width: thin; }
+ * { scrollbar-color: #d6d3d1 transparent; scrollbar-width: thin; }
 button, a, input, textarea, select { -webkit-tap-highlight-color: transparent; }
 button { cursor: pointer; }
-::selection { background: #B6F06E; color: #0F3D1E; }
-.page-enter { animation: page-in .34s ease both; }
-@keyframes page-in { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: translateY(0); } }
-@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
-
-table { border-collapse: separate; border-spacing: 0; }
-thead th { background: hsl(var(--muted)); }
-thead th:first-child { border-top-left-radius: 14px; }
-thead th:last-child { border-top-right-radius: 14px; }
+::selection { background: #dbe4fc; color: #1C1C1E; }
+.tabular { font-variant-numeric: tabular-nums; }

@@ -30,7 +30,10 @@ _Populate as you build — short repo map plus pointers to the source-of-truth f
 - Real mode is the default. Demo mode reads only demo records; real mode excludes them at the database query boundary, including nested counts and CSVs. Demo fixtures are loaded only on explicit user action.
 - The three research/outreach phases must be retained. Change data handling without deleting phase implementations.
 - The password gate uses `APP_PASSWORD` and `SESSION_SECRET`; protected routes fail closed when either is missing.
-- Demo mode makes no external research or AI calls. Real Google requests require explicit action; browsing stored records does not request live fields automatically.
+- Discovery uses OpenStreetMap/Overpass only. Google Places is disabled, including legacy endpoints and its low-level adapter. Plain Google search/Maps links are user-opened external links, not API calls.
+- OSM queries are explicit, serial, at least 5 seconds apart, and cached for 24 hours. Configure an OSM contact in Settings. Missing OSM websites are unverified, not proof of no website.
+- Demo mode makes no external research or AI calls.
+- Retain PostgreSQL and all existing records; the user explicitly chose not to migrate to SQLite for the OSM version.
 - No app flow sends email or WhatsApp. Message actions only draft, copy, open a prefilled link, and record a send the user confirms manually.
 
 ## Product

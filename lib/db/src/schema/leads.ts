@@ -39,7 +39,8 @@ export const companies = pgTable("companies", {
   google_updated_at: text("google_updated_at"),
   ai_model: text("ai_model"),
   ai_generated_at: text("ai_generated_at"),
-}, t => [check("company_source", sql`${t.source} IN ('demo', 'google_places', 'manual')`)]);
+  osm_profile_json: text("osm_profile_json").notNull().default(sql`'{}'`),
+}, t => [check("company_source", sql`${t.source} IN ('demo', 'google_places', 'manual', 'openstreetmap')`)]);
 
 export const checks = pgTable("checks", {
   id: serial("id").primaryKey(),
@@ -146,6 +147,7 @@ export const research_jobs = pgTable("research_jobs", {
   error: text("error"),
   cancel_requested: integer("cancel_requested").notNull().default(sql`0`),
   input_json: text("input_json").notNull().default(sql`'{}'`),
+  summary_json: text("summary_json").notNull().default(sql`'{}'`),
   created_at: text("created_at").notNull(),
   updated_at: text("updated_at").notNull(),
   is_demo: integer("is_demo").notNull().default(sql`0`),
@@ -154,5 +156,11 @@ export const research_jobs = pgTable("research_jobs", {
 export const ai_api_usage = pgTable("ai_api_usage", {
   requested_at: text("requested_at").notNull(),
   is_demo: integer("is_demo").notNull().default(sql`0`),
+});
+
+export const osm_cache = pgTable("osm_cache", {
+  query_hash: text("query_hash").primaryKey(),
+  fetched_at: text("fetched_at").notNull(),
+  raw_json: text("raw_json").notNull(),
 });
 

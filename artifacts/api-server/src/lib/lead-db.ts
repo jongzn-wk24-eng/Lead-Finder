@@ -2,7 +2,10 @@ import { randomUUID } from "node:crypto";
 import { leadDb, type SQLInputValue } from "./lead-postgres";
 export { leadDb } from "./lead-postgres";
 import { generateOutreachDraft, MODEL } from "./gemini-ai";
-import { inDemoMode, withDataMode, withAllData, withTransaction } from "./lead-postgres";
+import { inDemoMode, withDataMode, withAllData, withTransaction, ensureOsmSchema } from "./lead-postgres";
+import { CATEGORIES, AREA_CENTRES } from "./osm/defaults";
+import { normalizePhone, normalizeWebsite, isMobile, groupName, distance, type NormalizedBusiness } from "./osm/normalize";
+await ensureOsmSchema();
 
 export const COMPANY_STATUSES = [
   "New",
@@ -51,9 +54,16 @@ const DEFAULT_KEYWORDS = [
 ];
 
 const DEFAULT_AI_INSTRUCTION =
-  "Write one short cold email (max 100 words) from Dylan Jong, a freelance web designer, to a local business owner in Malaysia. Use only the facts provided. Never invent numbers or claims. Mention the company and ONE real finding from stored website checks; if none is provided, reply 'Need a real finding first.' Do not imply a relationship or claim you checked the site on a phone. Say the business was listed on Google Places only when that is its source. Include one sentence on who I am; one small free offer (free homepage concept, no strings, ask 'Want me to send it over?'); one portfolio link; one opt-out line; sign-off. Simple spoken English, short sentences. Avoid exclamation marks, ALL CAPS, buzzwords, guarantees, percentages, prices, and claims about enquiries. Use 'might' or 'seems' for anything not directly measured. Also write a WhatsApp version, max 40 words.";
+  "Write one short cold email (under 100 words) from Dylan Jong, a freelance web designer, to a local business owner in Malaysia. Use only provided facts. Include the company name and ONE exact finding; if none, reply 'Need a real finding first.' Structure: found online + finding + 'That might be costing you some enquiries'; who I am; free concept of the top of their homepage, no strings, ask 'Want me to send it over?'; one portfolio link; one opt-out line; sign-off. Never claim a personal phone visit or phone test that was not performed. Simple spoken English. Avoid 'I hope this email finds you well', exclamation marks, ALL CAPS, buzzwords, guarantees, percentages and prices. Also write WhatsApp, at most 40 words.";
 
 const DEFAULT_SETTINGS = {
+  osmContact: "https://my-portfolio.jongzhenyat0121.workers.dev/",
+  overpassEndpoint: "https://overpass-api.de/api/interpreter",
+  categories: CATEGORIES,
+  areaCentres: AREA_CENTRES,
+  minValue: 10,
+  minProblem: 25,
+  chainThreshold: 8,
   demoMode: false,
   areas: DEFAULT_AREAS,
   keywords: DEFAULT_KEYWORDS,
@@ -69,6 +79,8 @@ const DEFAULT_SETTINGS = {
 };
 
 type CompanyRow = Record<string, unknown>;
+type OsmProfile = Partial<NormalizedBusiness> & { editedFields?: string[]; manualValue?:number; websiteConfirmedNone?:boolean; branchCount?:number; isChain?:boolean; duplicateWarning?:string|null };
+function parseProfile(raw:unknown):OsmProfile { try {return JSON.parse(String(raw??"{}")) as OsmProfile;}catch{return {};} }
 
 export type Company = {
   id: number;
@@ -80,7 +92,19 @@ export type Company = {
   phone: string | null;
   websiteUrl: string | null;
   mapsUrl: string | null;
-  source: "demo" | "google_places" | "manual";
+  source: "demo" | "google_places" | "manual" | "openstreetmap";
+  nameEn: string | null;
+  websiteType: string;
+  socialUrl: string | null;
+  phones: string[];
+  phoneIsMobile: boolean;
+  whatsappDerived: boolean;
+  manualValue: number;
+  websiteConfirmedNone: boolean;
+  branchCount: number;
+  isChain: boolean;
+  duplicateWarning: string | null;
+  osmStale: boolean;
   osmType: string | null;
   osmId: string | null;
   osmUpdatedAt: string | null;
@@ -129,6 +153,7 @@ const COMPANY_COLUMNS = `
 `;
 
 function toCompany(row: CompanyRow): Company {
+  const profile = parseProfile(row.osm_profile_json);
   const reasonsJson = String(row.reasons_json ?? "[]");
   let reasons: string[] = [];
   try {
@@ -145,6 +170,18 @@ function toCompany(row: CompanyRow): Company {
     valueScoreDetails = [];
   }
   return {
+    nameEn: profile.nameEn ?? null,
+    websiteType: profile.websiteConfirmedNone ? "none" : String(row.website_url ? "own" : profile.websiteType ?? "unknown"),
+    socialUrl: profile.socialUrl ?? null,
+    phones: profile.phones ?? [],
+    phoneIsMobile: isMobile(row.phone == null ? null : String(row.phone)),
+    whatsappDerived: profile.whatsappDerived ?? false,
+    manualValue: profile.manualValue ?? 0,
+    websiteConfirmedNone: profile.websiteConfirmedNone ?? false,
+    branchCount: profile.branchCount ?? 1,
+    isChain: profile.isChain ?? false,
+    duplicateWarning: profile.duplicateWarning ?? null,
+    osmStale: Boolean(row.osm_updated_at) && Date.now()-Date.parse(String(row.osm_updated_at))>30*86400_000,
     id: Number(row.id),
     placeId: String(row.place_id),
     name: String(row.name),
@@ -520,14 +557,92 @@ export async function getSettings() {
 }
 
 export async function updateSettings(patch: Record<string, unknown>) {
+  const combined = {...await getSettings(),...patch};
+  if(Number(combined.followup2Days)<=Number(combined.followup1Days)) throw new Error("The final follow-up must be later than the first follow-up.");
   const allowed = new Set(Object.keys(DEFAULT_SETTINGS));
   for (const [key, value] of Object.entries(patch)) {
     if (allowed.has(key)) (await setSetting(key, value));
   }
+  if(["categories","areaCentres","chainThreshold"].some(k=>k in patch))await recomputeOsmValues();
   return (await getSettings());
 }
 
+export async function readOsmCache(hash:string) {
+  const row=await leadDb.prepare("SELECT raw_json, fetched_at FROM osm_cache WHERE query_hash = ?").get(hash);
+  if(!row || Date.now()-Date.parse(String(row.fetched_at))>=86400_000)return null;
+  try{return JSON.parse(String(row.raw_json));}catch{return null;}
+}
+export async function writeOsmCache(hash:string,data:unknown) {
+  await leadDb.prepare("INSERT INTO osm_cache (query_hash,fetched_at,raw_json) VALUES (?,?,?) ON CONFLICT(query_hash) DO UPDATE SET fetched_at = excluded.fetched_at, raw_json = excluded.raw_json")
+    .run(hash,nowIso(),JSON.stringify(data));
+}
+export async function upsertOsmBusiness(b:NormalizedBusiness) {
+  return withTransaction(async()=>{
+    const placeId=`osm:${b.osmType}:${b.osmId}`;
+    await leadDb.prepare("SELECT pg_advisory_xact_lock(hashtext(?))").get(placeId);
+    let row=await leadDb.prepare("SELECT * FROM companies WHERE place_id = ? OR (osm_type = ? AND osm_id = ?)").get(placeId,b.osmType,b.osmId);
+    const isNew=!row;
+    if(!row){
+      const inserted=await leadDb.prepare("INSERT INTO companies (place_id,name,address,area,keyword,source,osm_type,osm_id,fetched_at,created_at,rating_available) VALUES (?,?,?,?,?,'openstreetmap',?,?,?,?,0)")
+        .run(placeId,b.name,b.address,b.area,b.keyword,b.osmType,b.osmId,nowIso(),nowIso());
+      row=await leadDb.prepare("SELECT * FROM companies WHERE id = ?").get(Number(inserted.lastInsertRowid));
+    }
+    const old=parseProfile(row!.osm_profile_json);
+    const edited=old.editedFields ?? (!isNew ? ["name","phone","websiteUrl","email","whatsapp"].filter(k=>Boolean(row![{websiteUrl:"website_url"}[k]??k])) : []);
+    const profile:OsmProfile={...b,...old,...Object.fromEntries(Object.entries(b).filter(([k])=>!edited.includes(k))),editedFields:edited};
+    if(edited.includes("websiteUrl"))Object.assign(profile,{websiteType:old.websiteType,socialUrl:old.socialUrl,websiteConfirmedNone:old.websiteConfirmedNone});
+    if(edited.includes("whatsapp"))profile.whatsappDerived=old.whatsappDerived??false;
+    const columns:Record<string,unknown>={name:b.name,address:b.address,area:b.area,keyword:b.keyword,phone:b.phone,website_url:b.websiteUrl,email:b.email,whatsapp:b.whatsapp};
+    for(const key of ["email","whatsapp"])if(columns[key]===null&&row![key])delete columns[key];
+    for(const key of edited)delete columns[{websiteUrl:"website_url"}[key]??key];
+    const assignments=Object.keys(columns).map(k=>`${k} = ?`).join(", ");
+    await leadDb.prepare(`UPDATE companies SET ${assignments}, source = 'openstreetmap', osm_profile_json = ?, osm_updated_at = ?, rating_available = 0, value_score_method = 'OSM estimate (not reviews)', maps_url = ? WHERE id = ?`)
+      .run(...Object.values(columns) as SQLInputValue[],JSON.stringify(profile),nowIso(),`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${b.name} ${b.address}`)}`,Number(row!.id));
+    await addActivity(Number(row!.id),"imported",null,null,isNew?"Imported from OpenStreetMap.":"OpenStreetMap data refreshed; manual edits preserved.");
+    return {id:Number(row!.id),isNew};
+  });
+}
+export async function recordOsmImport(category:string,requests:number,found:number) {
+  await leadDb.prepare("INSERT INTO searches (keyword,area,ran_at,api_calls,results_count,provider) VALUES (?,'Kuala Lumpur',?,?,?,'openstreetmap')").run(category,nowIso(),requests,found);
+}
+export async function recomputeOsmValues() {
+  const settings=await getSettings();
+  const rows=await leadDb.prepare("SELECT id,name,keyword,source,osm_profile_json FROM companies WHERE source IN ('openstreetmap','manual')").all() as Array<{id:number;name:string;keyword:string;source:string;osm_profile_json:string}>;
+  const profiles=rows.map(r=>({...r,profile:parseProfile(r.osm_profile_json)}));
+  const parents=new Map<number,number>(), keys=new Map<string,number>();
+  const root=(id:number):number=>{const parent=parents.get(id)??id;if(parent===id)return id;const result=root(parent);parents.set(id,result);return result;};
+  for(const r of profiles.filter(r=>r.source==="openstreetmap")){
+    for(const raw of [r.name,r.profile.brand,r.profile.operator]){
+      const key=groupName(raw??"");if(!key)continue;
+      const prior=keys.get(key);if(prior!=null)parents.set(root(r.id),root(prior));else keys.set(key,r.id);
+    }
+  }
+  const groups=new Map<number,number>();
+  for(const r of profiles.filter(r=>r.source==="openstreetmap"))groups.set(root(r.id),(groups.get(root(r.id))??0)+1);
+  for(const r of profiles){
+    const p=r.profile;
+    const branches=r.source==="openstreetmap"?(groups.get(root(r.id))??1):1;
+    const chain=branches>=settings.chainThreshold;
+    const category=settings.categories.find(c=>c.label===r.keyword);
+    const premium=p.lat!=null&&p.lng!=null&&settings.areaCentres.some(c=>c.premium&&distance({lat:p.lat!,lng:p.lng!},c)<=2000);
+    let score=0;const reasons:string[]=[];
+    if(category?.highValue){score+=10;reasons.push("High-value category (+10)");}
+    if(branches>=2&&!chain){score+=6;reasons.push(`${branches} KL branches (+6)`);}
+    if(premium){score+=6;reasons.push("Within 2 km of a premium area (+6)");}
+    const manual=[0,2,5,8][p.manualValue??0]??0;if(manual){score+=manual;reasons.push(`Your manual rating (+${manual})`);}
+    p.branchCount=branches;p.isChain=chain;
+    p.duplicateWarning=null;
+    if(p.lat!=null&&p.lng!=null){
+      const near=profiles.find(other=>other.id!==r.id&&groupName(String(other.name))===groupName(String(r.name))&&other.profile.lat!=null&&other.profile.lng!=null&&distance({lat:p.lat!,lng:p.lng!},{lat:other.profile.lat!,lng:other.profile.lng!})<=30);
+      if(near)p.duplicateWarning="Similar name within 30 metres. Review manually; records were not merged.";
+    }
+    await leadDb.prepare("UPDATE companies SET value_score = ?, value_score_base = ?, opportunity_score = problem_score + ?, value_score_details_json = ?, osm_profile_json = ?, value_score_method = 'OSM estimate (not reviews)' WHERE id = ?")
+      .run(Math.min(30,score),Math.min(30,score),Math.min(30,score),JSON.stringify(reasons),JSON.stringify(p),Number(r.id));
+  }
+}
+
 export type CompanyFilters = {
+  keyword?: string;
   search?: string;
   status?: string;
   area?: string;
@@ -537,13 +652,17 @@ export type CompanyFilters = {
 };
 
 export async function listCompanies(filters: CompanyFilters = {}) {
+  const settings = await getSettings();
   const conditions: string[] = [];
   const values: SQLInputValue[] = [];
   if (!filters.showAll) {
-    conditions.push("(c.source = 'google_places' OR (c.value_score >= 15 AND c.problem_score >= 25))");
+    conditions.push("c.value_score >= ? AND c.problem_score >= ? AND COALESCE(c.osm_profile_json::jsonb->>'isChain','false') <> 'true'");
+    values.push(settings.minValue,settings.minProblem);
   }
+  conditions.push("c.status <> 'Do not contact'");
+  if(filters.keyword){conditions.push("c.keyword = ?");values.push(filters.keyword);}
   if (filters.search?.trim()) {
-    conditions.push("(c.source = 'google_places' OR LOWER(c.name) LIKE ? OR LOWER(c.area) LIKE ? OR LOWER(c.keyword) LIKE ?)");
+    conditions.push("(LOWER(c.name) LIKE ? OR LOWER(c.area) LIKE ? OR LOWER(c.keyword) LIKE ?)");
     const needle = `%${filters.search.trim().toLowerCase()}%`;
     values.push(needle, needle, needle);
   }
@@ -555,10 +674,10 @@ export async function listCompanies(filters: CompanyFilters = {}) {
     conditions.push("c.area = ?");
     values.push(filters.area);
   }
-  if (filters.hasWebsite === true) conditions.push("(c.source = 'google_places' OR c.website_url IS NOT NULL)");
-  if (filters.hasWebsite === false) conditions.push("(c.source = 'google_places' OR c.website_url IS NULL)");
-  if (filters.hasContact === true) conditions.push("(c.source = 'google_places' OR c.phone IS NOT NULL OR c.email IS NOT NULL OR c.whatsapp IS NOT NULL)");
-  if (filters.hasContact === false) conditions.push("(c.source = 'google_places' OR (c.phone IS NULL AND c.email IS NULL AND c.whatsapp IS NULL))");
+  if (filters.hasWebsite === true) conditions.push("c.website_url IS NOT NULL");
+  if (filters.hasWebsite === false) conditions.push("c.website_url IS NULL");
+  if (filters.hasContact === true) conditions.push("(c.phone IS NOT NULL OR c.email IS NOT NULL OR c.whatsapp IS NOT NULL)");
+  if (filters.hasContact === false) conditions.push("(c.phone IS NULL AND c.email IS NULL AND c.whatsapp IS NULL)");
   const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
   const rows = (await leadDb
     .prepare(
@@ -606,6 +725,8 @@ export async function getCompany(id: number) {
 }
 
 export async function createCompany(input: Record<string, unknown>) {
+  const web = normalizeWebsite(typeof input.websiteUrl === "string" ? input.websiteUrl : null);
+  const phone = normalizePhone(String(input.phone ?? ""));
   const now = nowIso();
   const placeId = `manual:${randomUUID()}`;
   const suppliedReasons = Array.isArray(input.reasons)
@@ -626,10 +747,10 @@ export async function createCompany(input: Record<string, unknown>) {
       placeId,
       String(input.name),
       String(input.address ?? ""),
-      String(input.area),
+      String(input.area ?? "Other KL"),
       String(input.keyword ?? ""),
-      input.phone == null ? null : String(input.phone),
-      input.websiteUrl == null ? null : String(input.websiteUrl),
+      phone,
+      web.websiteUrl,
       Number(input.rating ?? 0),
       Number(input.reviewCount ?? 0),
       JSON.stringify(reasons),
@@ -638,6 +759,8 @@ export async function createCompany(input: Record<string, unknown>) {
       now,
     ));
   const id = Number(result.lastInsertRowid);
+  await leadDb.prepare("UPDATE companies SET osm_profile_json = ?, rating_available = 0 WHERE id = ?")
+    .run(JSON.stringify({...web,phones:phone?[phone]:[],manualValue:0,editedFields:["name","websiteUrl","phone"]}),id);
   (await addActivity(id, "status_changed", null, null, "Company added manually."));
   return (await getCompany(id));
 }
@@ -736,7 +859,7 @@ export async function loadDemoData() {
 }
 
 export type WebsiteCheckInput = {
-  websiteType: "own" | "social" | "down" | "none";
+  websiteType: "own" | "social" | "down" | "none" | "unknown";
   psiMobileScore: number | null;
   lcpSeconds: number | null;
   https: boolean | null;
@@ -765,8 +888,8 @@ export async function saveWebsiteCheck(companyId: number, input: WebsiteCheckInp
   if (!company) return false;
   (await leadDb.prepare(`
     UPDATE companies SET
-      email = COALESCE(?, email),
-      whatsapp = COALESCE(?, whatsapp),
+      email = CASE WHEN jsonb_exists(COALESCE(osm_profile_json::jsonb->'editedFields','[]'::jsonb),'email') THEN email ELSE COALESCE(NULLIF(email, ''), ?) END,
+      whatsapp = CASE WHEN jsonb_exists(COALESCE(osm_profile_json::jsonb->'editedFields','[]'::jsonb),'whatsapp') THEN whatsapp ELSE COALESCE(NULLIF(whatsapp, ''), ?) END,
       problem_score = ?,
       opportunity_score = value_score + ?,
       reasons_json = ?,
@@ -857,7 +980,7 @@ export async function updateLatestDesignResult(input: {
   }
   const websiteScore = Number(check.websiteProblemScore) || 0;
   const problemScore = input.status === "completed"
-    ? Math.min(70, websiteScore + Math.round((score ?? 0) / 5))
+    ? Math.min(70, websiteScore + ((score ?? 10)<=4 ? 20 : (score ?? 10)<=6 ? 10 : 0))
     : websiteScore;
   if (input.status === "completed" && input.reasons?.length) {
     const company = (await leadDb.prepare("SELECT reasons_json FROM companies WHERE id = ?").get(input.companyId)) as { reasons_json: string } | undefined;
@@ -870,6 +993,10 @@ export async function updateLatestDesignResult(input: {
     }
     const combined = [...existingReasons, ...input.reasons].filter((item, index, items) => items.indexOf(item) === index).slice(0, 3);
     (await leadDb.prepare("UPDATE companies SET reasons_json = ? WHERE id = ?").run(JSON.stringify(combined), input.companyId));
+  }
+  if(input.status==="completed"&&(input.ctaObvious===false||(score??10)<=6)){
+    await leadDb.prepare("UPDATE companies SET finding_type = COALESCE(finding_type, ?) WHERE id = ?")
+      .run(input.ctaObvious===false?"cta_hidden":"outdated",input.companyId);
   }
   (await leadDb.prepare(`
     UPDATE companies SET problem_score = ?, opportunity_score = value_score + ? WHERE id = ?
@@ -886,7 +1013,28 @@ export async function getCompanyScreenshotPath(companyId: number, variant: "desk
 }
 
 export async function updateCompany(id: number, patch: Record<string, unknown>) {
+  return withTransaction(async()=>{
+  const before = await getCompany(id);
+  if(!before)return null;
+  const raw = await leadDb.prepare("SELECT osm_profile_json FROM companies WHERE id = ?").get(id);
+  const profile = parseProfile(raw?.osm_profile_json);
+  if("websiteUrl" in patch){
+    const web=normalizeWebsite(patch.websiteUrl as string|null);patch.websiteUrl=web.websiteUrl;
+    Object.assign(profile,web,{websiteConfirmedNone:false});
+  }
+  if("phone" in patch)patch.phone=normalizePhone(String(patch.phone??""));
+  if("whatsapp" in patch){patch.whatsapp=normalizePhone(String(patch.whatsapp??""));profile.whatsappDerived=false;}
+  if("manualValue" in patch)profile.manualValue=Number(patch.manualValue);
+  if("websiteConfirmedNone" in patch){
+    profile.websiteConfirmedNone=Boolean(patch.websiteConfirmedNone);
+    if(profile.websiteConfirmedNone){patch.websiteUrl=null;profile.websiteType="none";}
+  }
+  profile.editedFields=[...new Set([...(profile.editedFields??[]),...Object.keys(patch)])];
+  await leadDb.prepare("UPDATE companies SET osm_profile_json = ? WHERE id = ?").run(JSON.stringify(profile),id);
   const allowed: Record<string, string> = {
+    name: "name",
+    phone: "phone",
+    websiteUrl: "website_url",
     firstName: "first_name",
     email: "email",
     whatsapp: "whatsapp",
@@ -895,10 +1043,12 @@ export async function updateCompany(id: number, patch: Record<string, unknown>) 
   const entries = Object.entries(patch).filter(([key]) => key in allowed);
   if (entries.length) {
     const assignments = entries.map(([key]) => `${allowed[key]} = ?`).join(", ");
-    const values = entries.map(([, value]) => (value === "" ? null : value as SQLInputValue));
+    const values = entries.map(([key,value]) => ["name","firstName","notes"].includes(key) ? String(value??"") : value === "" ? null : value as SQLInputValue);
     (await leadDb.prepare(`UPDATE companies SET ${assignments} WHERE id = ?`).run(...values, id));
   }
+  await recomputeOsmValues();
   return (await getCompany(id));
+  });
 }
 
 export async function updateCompanyStatus(id: number, status: string) {
@@ -907,12 +1057,14 @@ export async function updateCompanyStatus(id: number, status: string) {
   if (existing.isDoNotContact && status !== "Do not contact") {
     throw new Error("Do not contact is permanent and cannot be changed.");
   }
-  (await leadDb.prepare("UPDATE companies SET status = ? WHERE id = ?").run(status, id));
+  (await leadDb.prepare("UPDATE companies SET status = ? WHERE id = ? AND (status <> 'Do not contact' OR ? = 'Do not contact')").run(status, id, status));
   (await addActivity(id, "status_changed", null, null, `Status changed to ${status}.`));
   return (await getCompany(id));
 }
 
 export async function markDoNotContact(id: number) {
+  return withTransaction(async()=>{
+  await leadDb.prepare("SELECT pg_advisory_xact_lock(hashtext(?))").get(`company:${id}`);
   const existing = (await getCompany(id));
   if (!existing) return null;
   (await leadDb.prepare("UPDATE companies SET status = 'Do not contact' WHERE id = ?").run(id));
@@ -921,6 +1073,7 @@ export async function markDoNotContact(id: number) {
     .run(id));
   (await addActivity(id, "marked_do_not_contact", null, null, "Do not contact set permanently."));
   return (await getCompany(id));
+  });
 }
 
 export async function addActivity(
@@ -987,7 +1140,7 @@ function csvCell(value: unknown) {
 }
 
 function toCsv(headers: string[], rows: unknown[][]) {
-  return `\uFEFF${[headers, ...rows].map((row) => row.map(csvCell).join(",")).join("\r\n")}`;
+  return `\uFEFF# Map data © OpenStreetMap contributors (ODbL)\r\n${[headers, ...rows].map((row) => row.map(csvCell).join(",")).join("\r\n")}`;
 }
 
 export async function exportCompaniesCsv() {
@@ -1145,8 +1298,9 @@ export async function getDashboard() {
     googleSearchRequestsCount: await count("SELECT COALESCE(SUM(api_calls),0) AS count FROM searches WHERE provider='google_places' AND request_kind='search' AND substr(ran_at,1,7)=?", malaysiaDate().slice(0,7)),
     googleDetailsRequestsCount: await count("SELECT COALESCE(SUM(api_calls),0) AS count FROM searches WHERE provider='google_places' AND request_kind='details' AND substr(ran_at,1,7)=?", malaysiaDate().slice(0,7)),
     aiCallsToday: (await count("SELECT COUNT(*) AS count FROM ai_api_usage WHERE strftime('%Y-%m-%d', requested_at, '+8 hours') = ?", malaysiaDate())),
-    replyRatesByFindingType: contacted >= 10 ? withRates(replyRatesByFindingType) : [],
-    replyRatesByChannel: contacted >= 10 ? withRates(replyRatesByChannel) : [],
+    importsThisWeek: await count("SELECT COUNT(*) AS count FROM searches WHERE provider = 'openstreetmap' AND ran_at >= ?",new Date(Date.now()-7*86400_000).toISOString()),
+    replyRatesByFindingType: withRates(replyRatesByFindingType),
+    replyRatesByChannel: withRates(replyRatesByChannel),
   };
 }
 
@@ -1159,7 +1313,8 @@ const BANNED_DRAFT_PHRASES = [
   /\bI found you on Google Maps\b/i,
   /\bwe(?:'ve| have) worked together\b/i,
   /\b(?:will|can|could) (?:bring|get|increase|generate) (?:you )?(?:more )?(?:leads|enquiries|customers|sales)\b/i,
-  /\b(?:costing|losing) you (?:some )?(?:leads|enquiries|customers|sales)\b/i,
+  /I hope this email finds you well/i,
+  /!/,
   /\b(?:synergy|leverage|game[- ]changer|world[- ]class|cutting[- ]edge|transformative|revolutionary)\b/i,
 ];
 
@@ -1189,8 +1344,9 @@ function validateAiDraft(
     email.includes(exactFinding) &&
     whatsapp.includes(exactFinding) &&
     countWords(draft.emailBody) < 100 &&
-    countWords(draft.whatsappBody) < 100 &&
+    countWords(draft.whatsappBody) <= 40 &&
     countWords(draft.subject) < 100 &&
+    !text.split(/[\n.!?]/).some(line=>/[A-Z]/.test(line)&&!/[a-z]/.test(line)&&line.trim().split(/\s+/).length>=4) &&
     !BANNED_DRAFT_PHRASES.some((phrase) => phrase.test(text))
   );
 }
@@ -1198,27 +1354,31 @@ function validateAiDraft(
 export async function generateDraft(id: number, liveName?: string) {
   const company = (await getCompany(id));
   if (!company) return { error: "Company not found." } as const;
-  if (company.source === "google_places" && !liveName) return { error: "Load live Google details before drafting." } as const;
+  if (company.source === "google_places") return { error: "This is an archived Google record. Add independently verified details or import from OpenStreetMap before drafting." } as const;
   if (liveName) company.name = liveName;
   if (company.isDoNotContact) return { error: "This company is marked Do not contact." } as const;
+  if(company.emailCount>=3)return {error:"Maximum 3 emails per company reached."} as const;
+  if(company.emailCount>0&&company.outreach.some(o=>o.repliedAt))return {error:"A reply is recorded. Follow-up drafts are not available."} as const;
   if (!company.findingType || company.reasons.length === 0) {
     return { error: "Need a real finding first." } as const;
   }
+  if(!company.websiteUrl&&!company.websiteConfirmedNone&&company.findingType!=="manual")return {error:"Need a real finding first. Add a website or confirm no website."} as const;
   const settings = (await getSettings());
   if (!settings.myWhatsapp) {
     return { error: "Add your WhatsApp number in Settings before generating a draft." } as const;
   }
   const leadFinding = company.reasons[0]!;
+  const check=company.checks[0];
   let finding: string;
   switch (company.findingType) {
     case "no_contact_button":
-      finding = "I couldn't find a phone or WhatsApp link on the homepage.";
+      finding = check?.hasTelLink===0&&check?.hasWhatsappLink===0 ? "I couldn't find a WhatsApp or call button." : check?.hasWhatsappLink===0 ? "I couldn't find a WhatsApp link." : "I couldn't find a call link.";
       break;
     case "slow_mobile": {
-      const time = leadFinding.match(/about ([\d.]+) seconds/i)?.[1];
+      const time = check?.lcpSeconds;
       finding = time
-        ? `The homepage takes about ${time} seconds to load.`
-        : "The homepage takes longer to load on mobile.";
+        ? `Mobile largest contentful paint takes about ${time} seconds.`
+        : `The stored mobile performance score is ${check?.psiMobileScore ?? "unavailable"}/100.`;
       break;
     }
     case "not_secure":
@@ -1228,16 +1388,15 @@ export async function generateDraft(id: number, liveName?: string) {
       finding = "The site didn't open when I tried it.";
       break;
     case "outdated": {
-      const year = leadFinding.match(/\b(19|20)\d{2}\b/)?.[0];
+      const year = check?.copyrightYear;
       finding = year
-        ? `The site looks like it hasn't been updated since around ${year}.`
-        : "The site looks like it hasn't been updated recently.";
+        ? `The copyright notice shows ${year}.`
+        : `The visual design review rated the homepage ${check?.designScore ?? "unavailable"}/10.`;
       break;
     }
     case "no_website":
-      finding = company.websiteUrl
-        ? "I could only find a social page, not a website."
-        : "I couldn't find a website listed for your business.";
+      if(!company.websiteConfirmedNone)return {error:"Need a real finding first. Confirm no website before using this finding."} as const;
+      finding = company.socialUrl ? "I couldn't find a website for it, only a social page." : "No website was found in my manual check.";
       break;
     case "cta_hidden":
       finding = "The main contact button isn't easy to spot.";
@@ -1252,31 +1411,27 @@ export async function generateDraft(id: number, liveName?: string) {
   }
   const greeting = company.firstName.trim() ? `Hi ${company.firstName.trim()},` : "Hi there,";
   const subject = `Quick note about ${company.name}'s website`;
-  const sourceIntro =
-    company.osmId
-      ? `${company.name} was listed on OpenStreetMap.`
-      : company.source === "google_places"
-        ? `${company.name} was listed on Google Places.`
-        : `I came across ${company.name}.`;
+  const sourceIntro = `I found ${company.name} online.`;
   const emailBody = `${greeting}
 
-${sourceIntro} ${finding} I thought this might be useful to flag.
+${sourceIntro} ${finding} That might be costing you some enquiries.
 
-I'm ${settings.myName}, a web designer. I build custom websites with clear paths to call, WhatsApp or book.
+I'm ${settings.myName}, a ${settings.myTitle.toLowerCase()}.
 
-I'd like to send you a free concept of how the top of your homepage could look. No strings. Want me to send it over?
+I'd like to offer a free homepage top-section concept. No strings. Want me to send it over?
 
 My work: ${settings.portfolioUrl}
 
-If you're not interested, just tell me and I won't message again.
+Not interested? Tell me and I won't message again.
 
 ${settings.myName}
 ${settings.myTitle}
 WhatsApp: ${settings.myWhatsapp}`;
-  const whatsappBody = `Hi ${company.firstName.trim() || "there"}, this is ${settings.myName}, a web designer. I came across ${company.name} and noticed: ${finding} Can I send you a free homepage concept? No strings. My work: ${settings.portfolioUrl}`;
+  const whatsappBody = `Hi ${company.firstName.trim() || "there"}, I'm ${settings.myName.split(" ")[0]}, a web designer. ${company.name}: ${finding} Free homepage concept? No strings. ${settings.portfolioUrl}`;
   let finalDraft = { subject, emailBody, whatsappBody };
   let draftMode: "gemini" | "template" = "template";
   try {
+    if(company.emailCount>0)throw new Error("Use the prescribed local follow-up template.");
     if (inDemoMode()) throw new Error("Demo drafts use the local template; no external AI call.");
     const aiDraft = await generateOutreachDraft({
       companyName: company.name,
@@ -1297,7 +1452,17 @@ WhatsApp: ${settings.myWhatsapp}`;
   } catch {
     // Keep the plain, fact-based template when Gemini is unavailable.
   }
-  if (countWords(finalDraft.emailBody) >= 100 || countWords(finalDraft.whatsappBody) >= 100) {
+  if(draftMode==="template"){
+    if(countWords(finalDraft.emailBody)>=100)finalDraft.emailBody=`${greeting}\n\n${company.name}: ${finding} That might be costing you some enquiries.\n\nI'm ${settings.myName}, a ${settings.myTitle.toLowerCase()}. Free homepage top-section concept, no strings. Want me to send it over?\n\n${settings.portfolioUrl}\nNot interested? Tell me and I won't message again.\n\n${settings.myName}\nWhatsApp: ${settings.myWhatsapp}`;
+    if(countWords(finalDraft.whatsappBody)>40)finalDraft.whatsappBody=`Hi there. ${company.name}: ${finding} Free homepage concept? No strings. ${settings.portfolioUrl}`;
+  }
+  if(company.emailCount>0){
+    finalDraft.subject=`Re: Quick note about ${company.name}'s website`;
+    finalDraft.emailBody=company.emailCount===1
+      ? `${greeting}\n\nJust checking you saw my note. Happy to send the free homepage concept for ${company.name} if you're interested. If not, no worries.\n\n${settings.myName.split(" ")[0]}`
+      : `${greeting}\n\nLast message from me about ${company.name}. If your website ever becomes a priority, the free homepage concept offer still stands. My WhatsApp is below.\n\n${settings.myName.split(" ")[0]}\nWhatsApp: ${settings.myWhatsapp}`;
+  }
+  if (countWords(finalDraft.emailBody) >= 100 || countWords(finalDraft.whatsappBody) > 40) {
     return { error: "The finding or sender details are too long for a draft under 100 words. Shorten them and try again." } as const;
   }
   (await addActivity(
@@ -1312,7 +1477,7 @@ WhatsApp: ${settings.myWhatsapp}`;
   return {
     ...finalDraft,
     finding,
-    canOpenWhatsapp: Boolean(company.whatsapp),
+    canOpenWhatsapp: isMobile(normalizePhone(company.whatsapp??company.phone??"")),
     draftMode,
     aiModel: draftMode === "gemini" ? MODEL : null,
   };
@@ -1330,7 +1495,7 @@ export async function logCopiedMessage(id: number, channel: "email" | "whatsapp"
     `Copied ${channel} draft.`,
   ));
   if (company.status === "New") {
-    (await leadDb.prepare("UPDATE companies SET status = 'Claimed' WHERE id = ?").run(id));
+    (await leadDb.prepare("UPDATE companies SET status = 'Claimed' WHERE id = ? AND status = 'New'").run(id));
   }
   return { ok: true };
 }
@@ -1339,6 +1504,9 @@ export async function markMessageSent(
   id: number,
   input: { channel: "email" | "whatsapp"; sequenceNo: number; subject?: string; body: string },
 ) {
+  return withTransaction(async()=>{
+  await leadDb.prepare("SELECT pg_advisory_xact_lock(hashtext(?))").get(`daily:${input.channel}:${malaysiaDate()}`);
+  await leadDb.prepare("SELECT pg_advisory_xact_lock(hashtext(?))").get(`company:${id}`);
   const company = (await getCompany(id));
   if (!company) return { error: "Company not found." } as const;
   if (company.isDoNotContact) return { error: "Do not contact is permanent." } as const;
@@ -1347,10 +1515,8 @@ export async function markMessageSent(
   const dailyLimit = Number(
     input.channel === "email" ? settings.emailDailyLimit : settings.whatsappDailyLimit,
   );
-  if (sentToday >= dailyLimit) {
-    return { error: `Daily ${input.channel} limit reached (${dailyLimit}).` } as const;
-  }
   if (input.channel === "email") {
+    if(input.sequenceNo>1&&company.outreach.some(o=>o.repliedAt))return {error:"A reply is recorded. No further cold follow-up should be sent."} as const;
     if (company.emailCount >= 3) return { error: "Maximum 3 emails per company reached." } as const;
     if (input.sequenceNo !== company.emailCount + 1) {
       return { error: `The next email sequence for this company is #${company.emailCount + 1}.` } as const;
@@ -1397,14 +1563,16 @@ export async function markMessageSent(
     "marked_sent",
     input.channel,
     input.sequenceNo,
-    `Manually marked ${input.channel} #${input.sequenceNo} as sent.`,
+    `Manually marked ${input.channel} #${input.sequenceNo} as sent.${sentToday>=dailyLimit?" Daily limit exceeded; self-reported manual send.":""}`,
   ));
   return (await getCompany(id));
+  });
 }
 
 export async function logReply(id: number, note: string) {
   const company = (await getCompany(id));
   if (!company) return null;
+  if(company.isDoNotContact){await addActivity(id,"reply_logged",null,null,note);return company;}
   const now = nowIso();
   const latest = (await leadDb
     .prepare(

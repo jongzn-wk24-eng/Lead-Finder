@@ -30,6 +30,7 @@ export const CompanySource = {
   demo: 'demo',
   google_places: 'google_places',
   manual: 'manual',
+  openstreetmap: 'openstreetmap',
 } as const;
 
 export type CompanyGoogleAttributionsItem = {
@@ -38,6 +39,21 @@ export type CompanyGoogleAttributionsItem = {
 };
 
 export interface Company {
+  /** @nullable */
+  nameEn?: string | null;
+  websiteType?: string;
+  /** @nullable */
+  socialUrl?: string | null;
+  phoneIsMobile?: boolean;
+  whatsappDerived?: boolean;
+  phones?: string[];
+  manualValue?: number;
+  websiteConfirmedNone?: boolean;
+  branchCount?: number;
+  isChain?: boolean;
+  /** @nullable */
+  duplicateWarning?: string | null;
+  osmStale?: boolean;
   id: number;
   placeId: string;
   name: string;
@@ -198,6 +214,7 @@ export type CompanyDetail = Company & {
 };
 
 export interface SearchInput {
+  refresh?: boolean;
   /**
      * @minItems 1
      * @maxItems 20
@@ -215,6 +232,8 @@ export interface SearchInput {
 }
 
 export interface SearchEstimate {
+  cachedCategories?: string[];
+  queriesPlanned?: number;
   areaCount: number;
   keywordCount: number;
   pairCount: number;
@@ -231,6 +250,8 @@ export const ResearchJobKind = {
   search: 'search',
   recheck: 'recheck',
   google_refresh: 'google_refresh',
+  osm_import: 'osm_import',
+  osm_refresh: 'osm_refresh',
 } as const;
 
 export type ResearchJobStatus = typeof ResearchJobStatus[keyof typeof ResearchJobStatus];
@@ -244,9 +265,25 @@ export const ResearchJobStatus = {
   failed: 'failed',
 } as const;
 
+export type ImportSummaryFilterReasons = {[key: string]: number};
+
+export interface ImportSummary {
+  found: number;
+  newCount: number;
+  duplicates: number;
+  filtered: number;
+  withWebsite: number;
+  withPhone: number;
+  withEmail: number;
+  cached: boolean;
+  filterReasons: ImportSummaryFilterReasons;
+  warnings: string[];
+}
+
 export interface ResearchJob {
   id: string;
   kind: ResearchJobKind;
+  summary?: ImportSummary;
   status: ResearchJobStatus;
   phase: string;
   total: number;
@@ -337,6 +374,7 @@ export interface Dashboard {
   googleSearchRequestsCount?: number;
   googleDetailsRequestsCount?: number;
   aiCallsToday: number;
+  importsThisWeek?: number;
   replyRatesByFindingType: DashboardReplyRatesByFindingTypeItem[];
   replyRatesByChannel: DashboardReplyRatesByChannelItem[];
 }
@@ -364,26 +402,38 @@ export interface CompanyInput {
   /** @minLength 1 */
   name: string;
   /** @minLength 1 */
-  area: string;
-  keyword: string;
-  address: string;
+  area?: string;
+  keyword?: string;
+  address?: string;
   /** @nullable */
   phone?: string | null;
   /** @nullable */
-  websiteUrl?: string | null;
+  websiteUrl: string | null;
   /**
      * @minimum 0
      * @maximum 5
      */
-  rating: number;
+  rating?: number;
   /** @minimum 0 */
-  reviewCount: number;
+  reviewCount?: number;
   /** @nullable */
   findingType?: string | null;
   reasons?: string[];
 }
 
 export interface CompanyUpdate {
+  /** @nullable */
+  phone?: string | null;
+  /** @nullable */
+  websiteUrl?: string | null;
+  /** @minLength 2 */
+  name?: string;
+  /**
+     * @minimum 0
+     * @maximum 3
+     */
+  manualValue?: number;
+  websiteConfirmedNone?: boolean;
   firstName?: string;
   /** @nullable */
   email?: string | null;
@@ -432,7 +482,41 @@ export interface ReplyInput {
   note: string;
 }
 
+export interface OsmCategory {
+  /** @minLength 1 */
+  label: string;
+  /**
+     * @minItems 1
+     * @items.pattern ^[a-zA-Z_:]+=[a-zA-Z0-9_:.-]+$
+     */
+  filters: string[];
+  highValue: boolean;
+  enabled: boolean;
+}
+
+export interface AreaCentre {
+  label: string;
+  /**
+     * @minimum -90
+     * @maximum 90
+     */
+  lat: number;
+  /**
+     * @minimum -180
+     * @maximum 180
+     */
+  lng: number;
+  premium: boolean;
+}
+
 export interface Settings {
+  osmContact?: string;
+  overpassEndpoint?: string;
+  minValue?: number;
+  minProblem?: number;
+  chainThreshold?: number;
+  categories?: OsmCategory[];
+  areaCentres?: AreaCentre[];
   demoMode: boolean;
   areas: string[];
   keywords: string[];
@@ -476,6 +560,38 @@ export interface SettingsUpdate {
   myWhatsapp?: string;
   portfolioUrl?: string;
   aiInstruction?: string;
+  osmContact?: string;
+  overpassEndpoint?: string;
+  /**
+     * @minimum 0
+     * @maximum 30
+     */
+  minValue?: number;
+  /**
+     * @minimum 0
+     * @maximum 70
+     */
+  minProblem?: number;
+  /** @minimum 2 */
+  chainThreshold?: number;
+  /** @minItems 1 */
+  categories?: OsmCategory[];
+  /** @minItems 1 */
+  areaCentres?: AreaCentre[];
+}
+
+export interface PasteInput {
+  /**
+     * @minLength 1
+     * @maxLength 20000
+     */
+  text: string;
+}
+
+export interface PasteResult {
+  created: number;
+  errors: string[];
+  jobIds: string[];
 }
 
 export type LoadDemoData200 = {
@@ -491,6 +607,7 @@ export type RunOneCallTest200 = {
 
 export type ListCompaniesParams = {
 search?: string;
+keyword?: string;
 status?: string;
 area?: string;
 hasWebsite?: boolean;

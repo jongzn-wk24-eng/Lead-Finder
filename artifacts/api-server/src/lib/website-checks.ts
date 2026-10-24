@@ -16,6 +16,7 @@ import {
 import { GeminiQuotaError, scoreWebsiteDesign } from "./gemini-ai";
 import { logger } from "./logger";
 import { storeWebsiteScreenshot } from "./screenshot-storage";
+import { normalizePhone } from "./osm/normalize";
 
 const PAGE_TIMEOUT_MS = 20_000;
 const MAX_HTML_BYTES = 2 * 1024 * 1024;
@@ -180,7 +181,7 @@ function extractSignals(html: string, baseUrl: string): PageSignals {
     try {
       const url = new URL(link.startsWith("whatsapp:") ? `https://wa.me/${link.split(":").slice(1).join(":")}` : link);
       const path = url.pathname.replace(/^\/+/, "").split("/")[0] ?? "";
-      whatsapp = path.replace(/[^\d+]/g, "") || url.toString();
+      whatsapp = (url.searchParams.get("phone") || path).replace(/[^\d+]/g, "") || null;
     } catch {
       whatsapp = link;
     }
@@ -232,6 +233,7 @@ async function readContactPage(url: string | null): Promise<SafeHtml | null> {
 
 async function getPageSpeed(url: string) {
   const endpoint = new URL("https://www.googleapis.com/pagespeedonline/v5/runPagespeed");
+  if(process.env.PAGESPEED_API_KEY)endpoint.searchParams.set("key",process.env.PAGESPEED_API_KEY);
   endpoint.searchParams.set("url", url);
   endpoint.searchParams.set("strategy", "mobile");
   endpoint.searchParams.set("category", "performance");
@@ -383,7 +385,7 @@ function socialOrWebsiteType(companyUrl: string | null) {
   return isSocialPage(companyUrl) ? "social" as const : "own" as const;
 }
 
-function problemForMissingWebsite(websiteType: "social" | "none"): WebsiteCheckInput {
+function problemForMissingWebsite(websiteType: "social" | "none" | "unknown", confirmed = false): WebsiteCheckInput {
   return {
     websiteType,
     psiMobileScore: null,
@@ -401,16 +403,19 @@ function problemForMissingWebsite(websiteType: "social" | "none"): WebsiteCheckI
     lastError: null,
     screenshotDesktopPath: null,
     screenshotMobilePath: null,
-    problemScore: 50,
-    reasons: [websiteType === "social" ? "Only a social page was listed for this business." : "No website was listed for this business."],
-    findingType: "no_website",
+    problemScore: confirmed ? 50 : 0,
+    reasons: [confirmed ? "No website: confirmed manually." : "No website listed (unverified)."],
+    findingType: confirmed ? "no_website" : null,
     email: null,
     whatsapp: null,
   };
 }
 
 async function runOneCheck(companyId: number, websiteUrl: string, retryCount: number): Promise<WebsiteCheckInput> {
+  const started=performance.now();
   const homepage = await safeGetHtml(websiteUrl);
+  const responseSeconds=Math.round((performance.now()-started)/100)/10;
+  const weightBytes=Buffer.byteLength(homepage.html);
   const signals = extractSignals(homepage.html, homepage.url);
   const contactPage = await readContactPage(signals.contactUrl);
   const contactSignals = contactPage ? extractSignals(contactPage.html, contactPage.url) : null;
@@ -444,6 +449,10 @@ async function runOneCheck(companyId: number, websiteUrl: string, retryCount: nu
 
   const https = new URL(homepage.url).protocol === "https:";
   const computed = scoreWebsite(homepage.url, signals, contactSignals, psi);
+  if(psiError){
+    computed.reasons.unshift(`Approximate: homepage response took ${responseSeconds} seconds; HTML weight ${weightBytes} bytes (not a mobile load-time test).`);
+    computed.problemScore=Math.min(70,computed.problemScore+(responseSeconds>3||weightBytes>1024*1024?3:0));
+  }
   const reasons = [...computed.reasons];
   const score = computed.problemScore;
   if (screenshotError) logger.debug({ companyId }, "Screenshot capture was skipped; visual scoring is unavailable");
@@ -460,15 +469,15 @@ async function runOneCheck(companyId: number, websiteUrl: string, retryCount: nu
     hasContactPage: computed.hasContactPage,
     siteBuilder: signals.siteBuilder ?? contactSignals?.siteBuilder ?? null,
     retryCount: Math.max(retryCount, psiRetryCount),
-    checkStatus: psiError ? "failed" : "completed",
-    lastError: psiError,
+    checkStatus: "completed",
+    lastError: psiError ? `${psiError} Used approximate response time (${responseSeconds}s) and HTML weight (${weightBytes} bytes).` : null,
     screenshotDesktopPath,
     screenshotMobilePath,
     problemScore: score,
     reasons: reasons.slice(0, 3),
     findingType: findingTypeFor(reasons, https, signals.copyrightYear, computed.hasTelLink, computed.hasWhatsappLink),
     email: signals.emails[0] ?? contactSignals?.emails[0] ?? null,
-    whatsapp: signals.whatsapp ?? contactSignals?.whatsapp ?? null,
+    whatsapp: normalizePhone(signals.whatsapp ?? contactSignals?.whatsapp ?? ""),
   };
 }
 
@@ -508,16 +517,28 @@ async function runWithRetry(companyId: number, websiteUrl: string): Promise<Webs
   };
 }
 
-export async function checkCompanyWebsite(companyId: number, liveWebsiteUrl?: string | null): Promise<{ failed: boolean; error: string | null }> {
+const companyCheckQueue=new Map<number,Promise<{failed:boolean;error:string|null}>>();
+export async function checkCompanyWebsite(companyId:number,liveWebsiteUrl?:string|null){
+  const previous=companyCheckQueue.get(companyId)??Promise.resolve();
+  const current=previous.catch(()=>undefined).then(()=>runCompanyWebsiteCheck(companyId,liveWebsiteUrl));
+  companyCheckQueue.set(companyId,current);
+  try{return await current;}finally{if(companyCheckQueue.get(companyId)===current)companyCheckQueue.delete(companyId);}
+}
+async function runCompanyWebsiteCheck(companyId: number, liveWebsiteUrl?: string | null): Promise<{ failed: boolean; error: string | null }> {
   const company = (await getCompany(companyId));
   if (!company) return { failed: true, error: "Company not found." };
+  if(company.isDoNotContact)return {failed:false,error:"Do not contact: skipped research."};
   const websiteUrl = liveWebsiteUrl === undefined ? company.websiteUrl : liveWebsiteUrl;
   const websiteType = socialOrWebsiteType(websiteUrl);
   if (websiteType !== "own") {
-    (await saveWebsiteCheck(companyId, problemForMissingWebsite(websiteType)));
+    (await saveWebsiteCheck(companyId, problemForMissingWebsite(company.websiteConfirmedNone ? "none" : company.socialUrl ? "social" : "unknown",company.websiteConfirmedNone)));
     return { failed: false, error: null };
   }
   const result = await runWithRetry(companyId, websiteUrl!);
+  const latest=await getCompany(companyId);
+  if(!latest||latest.isDoNotContact||latest.websiteUrl!==company.websiteUrl||latest.websiteConfirmedNone!==company.websiteConfirmedNone){
+    return {failed:false,error:"Website changed during the check; stale results were discarded."};
+  }
   (await saveWebsiteCheck(companyId, result));
   const screenshots = (await getLatestDesignScreenshotPaths(companyId));
   if (screenshots) {

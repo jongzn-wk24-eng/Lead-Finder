@@ -68,10 +68,8 @@ export class GooglePlacesError extends Error {
   }
 }
 
-function apiKey() {
-  const key = process.env.GOOGLE_API_KEY;
-  if (!key) throw new Error("Google Places is not configured. Add GOOGLE_API_KEY in Replit Secrets.");
-  return key;
+function apiKey(): never {
+  throw new Error("Google Places is disabled. This version uses OpenStreetMap only.");
 }
 
 async function placesRequest(url: string, init: RequestInit, fieldMask: string, onRequest: () => void | Promise<void>) {

@@ -8,6 +8,57 @@
 import * as zod from 'zod';
 
 
+export const pasteCompaniesBodyTextMax = 20000;
+
+
+
+export const PasteCompaniesBody = zod.object({
+  "text": zod.string().min(1).max(pasteCompaniesBodyTextMax)
+})
+
+export const PasteCompaniesResponse = zod.object({
+  "created": zod.number().int(),
+  "errors": zod.array(zod.string()),
+  "jobIds": zod.array(zod.string())
+})
+
+
+export const RefreshOsmCompanyParams = zod.object({
+  "companyId": zod.coerce.number().int()
+})
+
+export const RefreshOsmCompanyResponse = zod.object({
+  "id": zod.string(),
+  "kind": zod.enum(['search', 'recheck', 'google_refresh', 'osm_import', 'osm_refresh']),
+  "summary": zod.object({
+  "found": zod.number().int(),
+  "newCount": zod.number().int(),
+  "duplicates": zod.number().int(),
+  "filtered": zod.number().int(),
+  "withWebsite": zod.number().int(),
+  "withPhone": zod.number().int(),
+  "withEmail": zod.number().int(),
+  "cached": zod.boolean(),
+  "filterReasons": zod.record(zod.string(), zod.number().int()),
+  "warnings": zod.array(zod.string())
+}).optional(),
+  "status": zod.enum(['queued', 'running', 'completed', 'cancelled', 'failed']),
+  "phase": zod.string(),
+  "total": zod.number().int(),
+  "completed": zod.number().int(),
+  "requestsEstimated": zod.number().int(),
+  "requestsMade": zod.number().int(),
+  "newCompanies": zod.number().int(),
+  "updatedCompanies": zod.number().int(),
+  "skippedCompanies": zod.number().int(),
+  "checksFailed": zod.number().int(),
+  "currentLabel": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})
+
+
 /**
  * Returns server health status
  * @summary Health check
@@ -84,6 +135,7 @@ export const GetDashboardResponse = zod.object({
   "googleSearchRequestsCount": zod.number().int().optional(),
   "googleDetailsRequestsCount": zod.number().int().optional(),
   "aiCallsToday": zod.number().int(),
+  "importsThisWeek": zod.number().int().optional(),
   "replyRatesByFindingType": zod.array(zod.object({
   "findingType": zod.string(),
   "sent": zod.number().int(),
@@ -100,8 +152,9 @@ export const GetDashboardResponse = zod.object({
 
 
 /**
- * @summary Estimate Google Places Text Search requests for selected areas and categories
+ * @summary Estimate bounded Overpass requests for selected KL categories
  */
+export const estimateSearchBodyRefreshDefault = false;
 export const estimateSearchBodyAreasItemMax = 100;
 
 export const estimateSearchBodyAreasMax = 20;
@@ -113,11 +166,14 @@ export const estimateSearchBodyKeywordsMax = 30;
 
 
 export const EstimateSearchBody = zod.object({
+  "refresh": zod.boolean().default(estimateSearchBodyRefreshDefault),
   "areas": zod.array(zod.string().min(1).max(estimateSearchBodyAreasItemMax)).min(1).max(estimateSearchBodyAreasMax),
   "keywords": zod.array(zod.string().min(1).max(estimateSearchBodyKeywordsItemMax)).min(1).max(estimateSearchBodyKeywordsMax)
 })
 
 export const EstimateSearchResponse = zod.object({
+  "cachedCategories": zod.array(zod.string()).optional(),
+  "queriesPlanned": zod.number().int().optional(),
   "areaCount": zod.number().int(),
   "keywordCount": zod.number().int(),
   "pairCount": zod.number().int(),
@@ -129,8 +185,9 @@ export const EstimateSearchResponse = zod.object({
 
 
 /**
- * @summary Start a Google Places search and website-check job
+ * @summary Start an OpenStreetMap import and website-check job
  */
+export const startSearchJobBodyRefreshDefault = false;
 export const startSearchJobBodyAreasItemMax = 100;
 
 export const startSearchJobBodyAreasMax = 20;
@@ -142,13 +199,26 @@ export const startSearchJobBodyKeywordsMax = 30;
 
 
 export const StartSearchJobBody = zod.object({
+  "refresh": zod.boolean().default(startSearchJobBodyRefreshDefault),
   "areas": zod.array(zod.string().min(1).max(startSearchJobBodyAreasItemMax)).min(1).max(startSearchJobBodyAreasMax),
   "keywords": zod.array(zod.string().min(1).max(startSearchJobBodyKeywordsItemMax)).min(1).max(startSearchJobBodyKeywordsMax)
 })
 
 export const StartSearchJobResponse = zod.object({
   "id": zod.string(),
-  "kind": zod.enum(['search', 'recheck', 'google_refresh']),
+  "kind": zod.enum(['search', 'recheck', 'google_refresh', 'osm_import', 'osm_refresh']),
+  "summary": zod.object({
+  "found": zod.number().int(),
+  "newCount": zod.number().int(),
+  "duplicates": zod.number().int(),
+  "filtered": zod.number().int(),
+  "withWebsite": zod.number().int(),
+  "withPhone": zod.number().int(),
+  "withEmail": zod.number().int(),
+  "cached": zod.boolean(),
+  "filterReasons": zod.record(zod.string(), zod.number().int()),
+  "warnings": zod.array(zod.string())
+}).optional(),
   "status": zod.enum(['queued', 'running', 'completed', 'cancelled', 'failed']),
   "phase": zod.string(),
   "total": zod.number().int(),
@@ -175,7 +245,19 @@ export const GetSearchJobParams = zod.object({
 
 export const GetSearchJobResponse = zod.object({
   "id": zod.string(),
-  "kind": zod.enum(['search', 'recheck', 'google_refresh']),
+  "kind": zod.enum(['search', 'recheck', 'google_refresh', 'osm_import', 'osm_refresh']),
+  "summary": zod.object({
+  "found": zod.number().int(),
+  "newCount": zod.number().int(),
+  "duplicates": zod.number().int(),
+  "filtered": zod.number().int(),
+  "withWebsite": zod.number().int(),
+  "withPhone": zod.number().int(),
+  "withEmail": zod.number().int(),
+  "cached": zod.boolean(),
+  "filterReasons": zod.record(zod.string(), zod.number().int()),
+  "warnings": zod.array(zod.string())
+}).optional(),
   "status": zod.enum(['queued', 'running', 'completed', 'cancelled', 'failed']),
   "phase": zod.string(),
   "total": zod.number().int(),
@@ -202,7 +284,19 @@ export const CancelSearchJobParams = zod.object({
 
 export const CancelSearchJobResponse = zod.object({
   "id": zod.string(),
-  "kind": zod.enum(['search', 'recheck', 'google_refresh']),
+  "kind": zod.enum(['search', 'recheck', 'google_refresh', 'osm_import', 'osm_refresh']),
+  "summary": zod.object({
+  "found": zod.number().int(),
+  "newCount": zod.number().int(),
+  "duplicates": zod.number().int(),
+  "filtered": zod.number().int(),
+  "withWebsite": zod.number().int(),
+  "withPhone": zod.number().int(),
+  "withEmail": zod.number().int(),
+  "cached": zod.boolean(),
+  "filterReasons": zod.record(zod.string(), zod.number().int()),
+  "warnings": zod.array(zod.string())
+}).optional(),
   "status": zod.enum(['queued', 'running', 'completed', 'cancelled', 'failed']),
   "phase": zod.string(),
   "total": zod.number().int(),
@@ -231,6 +325,7 @@ export const LoadDemoDataResponse = zod.object({
 /**
  * @summary One Text Search request; transient preview, no checks or Place Details
  */
+export const runOneCallTestBodyRefreshDefault = false;
 export const runOneCallTestBodyAreasItemMax = 100;
 
 export const runOneCallTestBodyAreasMax = 20;
@@ -242,6 +337,7 @@ export const runOneCallTestBodyKeywordsMax = 30;
 
 
 export const RunOneCallTestBody = zod.object({
+  "refresh": zod.boolean().default(runOneCallTestBodyRefreshDefault),
   "areas": zod.array(zod.string().min(1).max(runOneCallTestBodyAreasItemMax)).min(1).max(runOneCallTestBodyAreasMax),
   "keywords": zod.array(zod.string().min(1).max(runOneCallTestBodyKeywordsItemMax)).min(1).max(runOneCallTestBodyKeywordsMax)
 })
@@ -267,6 +363,7 @@ export const listCompaniesQueryShowAllDefault = false;
 
 export const ListCompaniesQueryParams = zod.object({
   "search": zod.coerce.string().optional(),
+  "keyword": zod.coerce.string().optional(),
   "status": zod.coerce.string().optional(),
   "area": zod.coerce.string().optional(),
   "hasWebsite": zod.coerce.boolean().optional(),
@@ -275,6 +372,18 @@ export const ListCompaniesQueryParams = zod.object({
 })
 
 export const ListCompaniesResponseItem = zod.object({
+  "nameEn": zod.string().nullish(),
+  "websiteType": zod.string().optional(),
+  "socialUrl": zod.string().nullish(),
+  "phoneIsMobile": zod.boolean().optional(),
+  "whatsappDerived": zod.boolean().optional(),
+  "phones": zod.array(zod.string()).optional(),
+  "manualValue": zod.number().int().optional(),
+  "websiteConfirmedNone": zod.boolean().optional(),
+  "branchCount": zod.number().int().optional(),
+  "isChain": zod.boolean().optional(),
+  "duplicateWarning": zod.string().nullish(),
+  "osmStale": zod.boolean().optional(),
   "id": zod.number().int(),
   "placeId": zod.string(),
   "name": zod.string(),
@@ -284,7 +393,7 @@ export const ListCompaniesResponseItem = zod.object({
   "phone": zod.string().nullish(),
   "websiteUrl": zod.string().nullish(),
   "mapsUrl": zod.string().nullish(),
-  "source": zod.enum(['demo', 'google_places', 'manual']),
+  "source": zod.enum(['demo', 'google_places', 'manual', 'openstreetmap']),
   "automatedCheckStatus": zod.string().optional(),
   "automatedCheckedAt": zod.string().nullish(),
   "aiStatus": zod.string().optional(),
@@ -341,18 +450,30 @@ export const createCompanyBodyReviewCountMin = 0;
 
 export const CreateCompanyBody = zod.object({
   "name": zod.string().min(1),
-  "area": zod.string().min(1),
-  "keyword": zod.string(),
-  "address": zod.string(),
+  "area": zod.string().min(1).optional(),
+  "keyword": zod.string().optional(),
+  "address": zod.string().optional(),
   "phone": zod.string().nullish(),
-  "websiteUrl": zod.string().nullish(),
-  "rating": zod.number().min(createCompanyBodyRatingMin).max(createCompanyBodyRatingMax),
-  "reviewCount": zod.number().int().min(createCompanyBodyReviewCountMin),
+  "websiteUrl": zod.string().nullable(),
+  "rating": zod.number().min(createCompanyBodyRatingMin).max(createCompanyBodyRatingMax).optional(),
+  "reviewCount": zod.number().int().min(createCompanyBodyReviewCountMin).optional(),
   "findingType": zod.string().nullish(),
   "reasons": zod.array(zod.string()).optional()
 })
 
 export const CreateCompanyResponse = zod.object({
+  "nameEn": zod.string().nullish(),
+  "websiteType": zod.string().optional(),
+  "socialUrl": zod.string().nullish(),
+  "phoneIsMobile": zod.boolean().optional(),
+  "whatsappDerived": zod.boolean().optional(),
+  "phones": zod.array(zod.string()).optional(),
+  "manualValue": zod.number().int().optional(),
+  "websiteConfirmedNone": zod.boolean().optional(),
+  "branchCount": zod.number().int().optional(),
+  "isChain": zod.boolean().optional(),
+  "duplicateWarning": zod.string().nullish(),
+  "osmStale": zod.boolean().optional(),
   "id": zod.number().int(),
   "placeId": zod.string(),
   "name": zod.string(),
@@ -362,7 +483,7 @@ export const CreateCompanyResponse = zod.object({
   "phone": zod.string().nullish(),
   "websiteUrl": zod.string().nullish(),
   "mapsUrl": zod.string().nullish(),
-  "source": zod.enum(['demo', 'google_places', 'manual']),
+  "source": zod.enum(['demo', 'google_places', 'manual', 'openstreetmap']),
   "automatedCheckStatus": zod.string().optional(),
   "automatedCheckedAt": zod.string().nullish(),
   "aiStatus": zod.string().optional(),
@@ -422,6 +543,18 @@ export const GetCompanyParams = zod.object({
 })
 
 export const GetCompanyResponse = zod.object({
+  "nameEn": zod.string().nullish(),
+  "websiteType": zod.string().optional(),
+  "socialUrl": zod.string().nullish(),
+  "phoneIsMobile": zod.boolean().optional(),
+  "whatsappDerived": zod.boolean().optional(),
+  "phones": zod.array(zod.string()).optional(),
+  "manualValue": zod.number().int().optional(),
+  "websiteConfirmedNone": zod.boolean().optional(),
+  "branchCount": zod.number().int().optional(),
+  "isChain": zod.boolean().optional(),
+  "duplicateWarning": zod.string().nullish(),
+  "osmStale": zod.boolean().optional(),
   "id": zod.number().int(),
   "placeId": zod.string(),
   "name": zod.string(),
@@ -431,7 +564,7 @@ export const GetCompanyResponse = zod.object({
   "phone": zod.string().nullish(),
   "websiteUrl": zod.string().nullish(),
   "mapsUrl": zod.string().nullish(),
-  "source": zod.enum(['demo', 'google_places', 'manual']),
+  "source": zod.enum(['demo', 'google_places', 'manual', 'openstreetmap']),
   "automatedCheckStatus": zod.string().optional(),
   "automatedCheckedAt": zod.string().nullish(),
   "aiStatus": zod.string().optional(),
@@ -525,7 +658,19 @@ export const UpdateCompanyParams = zod.object({
   "companyId": zod.coerce.number().int()
 })
 
+export const updateCompanyBodyNameMin = 2;
+
+export const updateCompanyBodyManualValueMin = 0;
+export const updateCompanyBodyManualValueMax = 3;
+
+
+
 export const UpdateCompanyBody = zod.object({
+  "phone": zod.string().nullish(),
+  "websiteUrl": zod.string().nullish(),
+  "name": zod.string().min(updateCompanyBodyNameMin).optional(),
+  "manualValue": zod.number().int().min(updateCompanyBodyManualValueMin).max(updateCompanyBodyManualValueMax).optional(),
+  "websiteConfirmedNone": zod.boolean().optional(),
   "firstName": zod.string().optional(),
   "email": zod.string().nullish(),
   "whatsapp": zod.string().nullish(),
@@ -533,6 +678,18 @@ export const UpdateCompanyBody = zod.object({
 })
 
 export const UpdateCompanyResponse = zod.object({
+  "nameEn": zod.string().nullish(),
+  "websiteType": zod.string().optional(),
+  "socialUrl": zod.string().nullish(),
+  "phoneIsMobile": zod.boolean().optional(),
+  "whatsappDerived": zod.boolean().optional(),
+  "phones": zod.array(zod.string()).optional(),
+  "manualValue": zod.number().int().optional(),
+  "websiteConfirmedNone": zod.boolean().optional(),
+  "branchCount": zod.number().int().optional(),
+  "isChain": zod.boolean().optional(),
+  "duplicateWarning": zod.string().nullish(),
+  "osmStale": zod.boolean().optional(),
   "id": zod.number().int(),
   "placeId": zod.string(),
   "name": zod.string(),
@@ -542,7 +699,7 @@ export const UpdateCompanyResponse = zod.object({
   "phone": zod.string().nullish(),
   "websiteUrl": zod.string().nullish(),
   "mapsUrl": zod.string().nullish(),
-  "source": zod.enum(['demo', 'google_places', 'manual']),
+  "source": zod.enum(['demo', 'google_places', 'manual', 'openstreetmap']),
   "automatedCheckStatus": zod.string().optional(),
   "automatedCheckedAt": zod.string().nullish(),
   "aiStatus": zod.string().optional(),
@@ -593,7 +750,19 @@ export const RecheckCompanyParams = zod.object({
 
 export const RecheckCompanyResponse = zod.object({
   "id": zod.string(),
-  "kind": zod.enum(['search', 'recheck', 'google_refresh']),
+  "kind": zod.enum(['search', 'recheck', 'google_refresh', 'osm_import', 'osm_refresh']),
+  "summary": zod.object({
+  "found": zod.number().int(),
+  "newCount": zod.number().int(),
+  "duplicates": zod.number().int(),
+  "filtered": zod.number().int(),
+  "withWebsite": zod.number().int(),
+  "withPhone": zod.number().int(),
+  "withEmail": zod.number().int(),
+  "cached": zod.boolean(),
+  "filterReasons": zod.record(zod.string(), zod.number().int()),
+  "warnings": zod.array(zod.string())
+}).optional(),
   "status": zod.enum(['queued', 'running', 'completed', 'cancelled', 'failed']),
   "phase": zod.string(),
   "total": zod.number().int(),
@@ -620,7 +789,19 @@ export const RefreshGoogleCompanyParams = zod.object({
 
 export const RefreshGoogleCompanyResponse = zod.object({
   "id": zod.string(),
-  "kind": zod.enum(['search', 'recheck', 'google_refresh']),
+  "kind": zod.enum(['search', 'recheck', 'google_refresh', 'osm_import', 'osm_refresh']),
+  "summary": zod.object({
+  "found": zod.number().int(),
+  "newCount": zod.number().int(),
+  "duplicates": zod.number().int(),
+  "filtered": zod.number().int(),
+  "withWebsite": zod.number().int(),
+  "withPhone": zod.number().int(),
+  "withEmail": zod.number().int(),
+  "cached": zod.boolean(),
+  "filterReasons": zod.record(zod.string(), zod.number().int()),
+  "warnings": zod.array(zod.string())
+}).optional(),
   "status": zod.enum(['queued', 'running', 'completed', 'cancelled', 'failed']),
   "phase": zod.string(),
   "total": zod.number().int(),
@@ -661,6 +842,18 @@ export const UpdateCompanyStatusBody = zod.object({
 })
 
 export const UpdateCompanyStatusResponse = zod.object({
+  "nameEn": zod.string().nullish(),
+  "websiteType": zod.string().optional(),
+  "socialUrl": zod.string().nullish(),
+  "phoneIsMobile": zod.boolean().optional(),
+  "whatsappDerived": zod.boolean().optional(),
+  "phones": zod.array(zod.string()).optional(),
+  "manualValue": zod.number().int().optional(),
+  "websiteConfirmedNone": zod.boolean().optional(),
+  "branchCount": zod.number().int().optional(),
+  "isChain": zod.boolean().optional(),
+  "duplicateWarning": zod.string().nullish(),
+  "osmStale": zod.boolean().optional(),
   "id": zod.number().int(),
   "placeId": zod.string(),
   "name": zod.string(),
@@ -670,7 +863,7 @@ export const UpdateCompanyStatusResponse = zod.object({
   "phone": zod.string().nullish(),
   "websiteUrl": zod.string().nullish(),
   "mapsUrl": zod.string().nullish(),
-  "source": zod.enum(['demo', 'google_places', 'manual']),
+  "source": zod.enum(['demo', 'google_places', 'manual', 'openstreetmap']),
   "automatedCheckStatus": zod.string().optional(),
   "automatedCheckedAt": zod.string().nullish(),
   "aiStatus": zod.string().optional(),
@@ -720,6 +913,18 @@ export const MarkDoNotContactParams = zod.object({
 })
 
 export const MarkDoNotContactResponse = zod.object({
+  "nameEn": zod.string().nullish(),
+  "websiteType": zod.string().optional(),
+  "socialUrl": zod.string().nullish(),
+  "phoneIsMobile": zod.boolean().optional(),
+  "whatsappDerived": zod.boolean().optional(),
+  "phones": zod.array(zod.string()).optional(),
+  "manualValue": zod.number().int().optional(),
+  "websiteConfirmedNone": zod.boolean().optional(),
+  "branchCount": zod.number().int().optional(),
+  "isChain": zod.boolean().optional(),
+  "duplicateWarning": zod.string().nullish(),
+  "osmStale": zod.boolean().optional(),
   "id": zod.number().int(),
   "placeId": zod.string(),
   "name": zod.string(),
@@ -729,7 +934,7 @@ export const MarkDoNotContactResponse = zod.object({
   "phone": zod.string().nullish(),
   "websiteUrl": zod.string().nullish(),
   "mapsUrl": zod.string().nullish(),
-  "source": zod.enum(['demo', 'google_places', 'manual']),
+  "source": zod.enum(['demo', 'google_places', 'manual', 'openstreetmap']),
   "automatedCheckStatus": zod.string().optional(),
   "automatedCheckedAt": zod.string().nullish(),
   "aiStatus": zod.string().optional(),
@@ -825,6 +1030,18 @@ export const MarkMessageSentBody = zod.object({
 })
 
 export const MarkMessageSentResponse = zod.object({
+  "nameEn": zod.string().nullish(),
+  "websiteType": zod.string().optional(),
+  "socialUrl": zod.string().nullish(),
+  "phoneIsMobile": zod.boolean().optional(),
+  "whatsappDerived": zod.boolean().optional(),
+  "phones": zod.array(zod.string()).optional(),
+  "manualValue": zod.number().int().optional(),
+  "websiteConfirmedNone": zod.boolean().optional(),
+  "branchCount": zod.number().int().optional(),
+  "isChain": zod.boolean().optional(),
+  "duplicateWarning": zod.string().nullish(),
+  "osmStale": zod.boolean().optional(),
   "id": zod.number().int(),
   "placeId": zod.string(),
   "name": zod.string(),
@@ -834,7 +1051,7 @@ export const MarkMessageSentResponse = zod.object({
   "phone": zod.string().nullish(),
   "websiteUrl": zod.string().nullish(),
   "mapsUrl": zod.string().nullish(),
-  "source": zod.enum(['demo', 'google_places', 'manual']),
+  "source": zod.enum(['demo', 'google_places', 'manual', 'openstreetmap']),
   "automatedCheckStatus": zod.string().optional(),
   "automatedCheckedAt": zod.string().nullish(),
   "aiStatus": zod.string().optional(),
@@ -888,6 +1105,18 @@ export const LogReplyBody = zod.object({
 })
 
 export const LogReplyResponse = zod.object({
+  "nameEn": zod.string().nullish(),
+  "websiteType": zod.string().optional(),
+  "socialUrl": zod.string().nullish(),
+  "phoneIsMobile": zod.boolean().optional(),
+  "whatsappDerived": zod.boolean().optional(),
+  "phones": zod.array(zod.string()).optional(),
+  "manualValue": zod.number().int().optional(),
+  "websiteConfirmedNone": zod.boolean().optional(),
+  "branchCount": zod.number().int().optional(),
+  "isChain": zod.boolean().optional(),
+  "duplicateWarning": zod.string().nullish(),
+  "osmStale": zod.boolean().optional(),
   "id": zod.number().int(),
   "placeId": zod.string(),
   "name": zod.string(),
@@ -897,7 +1126,7 @@ export const LogReplyResponse = zod.object({
   "phone": zod.string().nullish(),
   "websiteUrl": zod.string().nullish(),
   "mapsUrl": zod.string().nullish(),
-  "source": zod.enum(['demo', 'google_places', 'manual']),
+  "source": zod.enum(['demo', 'google_places', 'manual', 'openstreetmap']),
   "automatedCheckStatus": zod.string().optional(),
   "automatedCheckedAt": zod.string().nullish(),
   "aiStatus": zod.string().optional(),
@@ -980,7 +1209,35 @@ export const ListFollowupsResponse = zod.array(ListFollowupsResponseItem)
 /**
  * @summary Read settings
  */
+
+export const getSettingsResponseCategoriesItemFiltersItemRegExp = new RegExp('^[a-zA-Z_:]+=[a-zA-Z0-9_:.-]+$');
+
+export const getSettingsResponseAreaCentresItemLatMin = -90;
+export const getSettingsResponseAreaCentresItemLatMax = 90;
+
+export const getSettingsResponseAreaCentresItemLngMin = -180;
+export const getSettingsResponseAreaCentresItemLngMax = 180;
+
+
+
 export const GetSettingsResponse = zod.object({
+  "osmContact": zod.string().optional(),
+  "overpassEndpoint": zod.string().optional(),
+  "minValue": zod.number().int().optional(),
+  "minProblem": zod.number().int().optional(),
+  "chainThreshold": zod.number().int().optional(),
+  "categories": zod.array(zod.object({
+  "label": zod.string().min(1),
+  "filters": zod.array(zod.string().regex(getSettingsResponseCategoriesItemFiltersItemRegExp)).min(1),
+  "highValue": zod.boolean(),
+  "enabled": zod.boolean()
+})).optional(),
+  "areaCentres": zod.array(zod.object({
+  "label": zod.string(),
+  "lat": zod.number().min(getSettingsResponseAreaCentresItemLatMin).max(getSettingsResponseAreaCentresItemLatMax),
+  "lng": zod.number().min(getSettingsResponseAreaCentresItemLngMin).max(getSettingsResponseAreaCentresItemLngMax),
+  "premium": zod.boolean()
+})).optional(),
   "demoMode": zod.boolean(),
   "areas": zod.array(zod.string()),
   "keywords": zod.array(zod.string()),
@@ -1007,6 +1264,25 @@ export const updateSettingsBodyFollowup1DaysMax = 60;
 
 export const updateSettingsBodyFollowup2DaysMax = 90;
 
+export const updateSettingsBodyMinValueMin = 0;
+export const updateSettingsBodyMinValueMax = 30;
+
+export const updateSettingsBodyMinProblemMin = 0;
+export const updateSettingsBodyMinProblemMax = 70;
+
+export const updateSettingsBodyChainThresholdMin = 2;
+
+
+export const updateSettingsBodyCategoriesItemFiltersItemRegExp = new RegExp('^[a-zA-Z_:]+=[a-zA-Z0-9_:.-]+$');
+
+
+export const updateSettingsBodyAreaCentresItemLatMin = -90;
+export const updateSettingsBodyAreaCentresItemLatMax = 90;
+
+export const updateSettingsBodyAreaCentresItemLngMin = -180;
+export const updateSettingsBodyAreaCentresItemLngMax = 180;
+
+
 
 
 export const UpdateSettingsBody = zod.object({
@@ -1021,10 +1297,55 @@ export const UpdateSettingsBody = zod.object({
   "myTitle": zod.string().optional(),
   "myWhatsapp": zod.string().optional(),
   "portfolioUrl": zod.string().optional(),
-  "aiInstruction": zod.string().optional()
+  "aiInstruction": zod.string().optional(),
+  "osmContact": zod.string().optional(),
+  "overpassEndpoint": zod.string().optional(),
+  "minValue": zod.number().int().min(updateSettingsBodyMinValueMin).max(updateSettingsBodyMinValueMax).optional(),
+  "minProblem": zod.number().int().min(updateSettingsBodyMinProblemMin).max(updateSettingsBodyMinProblemMax).optional(),
+  "chainThreshold": zod.number().int().min(updateSettingsBodyChainThresholdMin).optional(),
+  "categories": zod.array(zod.object({
+  "label": zod.string().min(1),
+  "filters": zod.array(zod.string().regex(updateSettingsBodyCategoriesItemFiltersItemRegExp)).min(1),
+  "highValue": zod.boolean(),
+  "enabled": zod.boolean()
+})).min(1).optional(),
+  "areaCentres": zod.array(zod.object({
+  "label": zod.string(),
+  "lat": zod.number().min(updateSettingsBodyAreaCentresItemLatMin).max(updateSettingsBodyAreaCentresItemLatMax),
+  "lng": zod.number().min(updateSettingsBodyAreaCentresItemLngMin).max(updateSettingsBodyAreaCentresItemLngMax),
+  "premium": zod.boolean()
+})).min(1).optional()
 })
 
+
+export const updateSettingsResponseCategoriesItemFiltersItemRegExp = new RegExp('^[a-zA-Z_:]+=[a-zA-Z0-9_:.-]+$');
+
+export const updateSettingsResponseAreaCentresItemLatMin = -90;
+export const updateSettingsResponseAreaCentresItemLatMax = 90;
+
+export const updateSettingsResponseAreaCentresItemLngMin = -180;
+export const updateSettingsResponseAreaCentresItemLngMax = 180;
+
+
+
 export const UpdateSettingsResponse = zod.object({
+  "osmContact": zod.string().optional(),
+  "overpassEndpoint": zod.string().optional(),
+  "minValue": zod.number().int().optional(),
+  "minProblem": zod.number().int().optional(),
+  "chainThreshold": zod.number().int().optional(),
+  "categories": zod.array(zod.object({
+  "label": zod.string().min(1),
+  "filters": zod.array(zod.string().regex(updateSettingsResponseCategoriesItemFiltersItemRegExp)).min(1),
+  "highValue": zod.boolean(),
+  "enabled": zod.boolean()
+})).optional(),
+  "areaCentres": zod.array(zod.object({
+  "label": zod.string(),
+  "lat": zod.number().min(updateSettingsResponseAreaCentresItemLatMin).max(updateSettingsResponseAreaCentresItemLatMax),
+  "lng": zod.number().min(updateSettingsResponseAreaCentresItemLngMin).max(updateSettingsResponseAreaCentresItemLngMax),
+  "premium": zod.boolean()
+})).optional(),
   "demoMode": zod.boolean(),
   "areas": zod.array(zod.string()),
   "keywords": zod.array(zod.string()),

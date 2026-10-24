@@ -13,4 +13,5 @@ export const CompanySource = {
   demo: 'demo',
   google_places: 'google_places',
   manual: 'manual',
+  openstreetmap: 'openstreetmap',
 } as const;

@@ -7,6 +7,7 @@
  */
 
 export interface SearchInput {
+  refresh?: boolean;
   /**
      * @minItems 1
      * @maxItems 20

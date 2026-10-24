@@ -5,8 +5,17 @@
  * KL Lead Finder API
  * OpenAPI spec version: 0.1.0
  */
+import type { AreaCentre } from './areaCentre';
+import type { OsmCategory } from './osmCategory';
 
 export interface Settings {
+  osmContact?: string;
+  overpassEndpoint?: string;
+  minValue?: number;
+  minProblem?: number;
+  chainThreshold?: number;
+  categories?: OsmCategory[];
+  areaCentres?: AreaCentre[];
   demoMode: boolean;
   areas: string[];
   keywords: string[];

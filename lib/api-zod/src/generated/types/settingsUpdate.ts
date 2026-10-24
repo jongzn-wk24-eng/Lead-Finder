@@ -5,6 +5,8 @@
  * KL Lead Finder API
  * OpenAPI spec version: 0.1.0
  */
+import type { AreaCentre } from './areaCentre';
+import type { OsmCategory } from './osmCategory';
 
 export interface SettingsUpdate {
   demoMode?: boolean;
@@ -35,4 +37,22 @@ export interface SettingsUpdate {
   myWhatsapp?: string;
   portfolioUrl?: string;
   aiInstruction?: string;
+  osmContact?: string;
+  overpassEndpoint?: string;
+  /**
+     * @minimum 0
+     * @maximum 30
+     */
+  minValue?: number;
+  /**
+     * @minimum 0
+     * @maximum 70
+     */
+  minProblem?: number;
+  /** @minimum 2 */
+  chainThreshold?: number;
+  /** @minItems 1 */
+  categories?: OsmCategory[];
+  /** @minItems 1 */
+  areaCentres?: AreaCentre[];
 }

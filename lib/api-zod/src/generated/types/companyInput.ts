@@ -10,20 +10,20 @@ export interface CompanyInput {
   /** @minLength 1 */
   name: string;
   /** @minLength 1 */
-  area: string;
-  keyword: string;
-  address: string;
+  area?: string;
+  keyword?: string;
+  address?: string;
   /** @nullable */
   phone?: string | null;
   /** @nullable */
-  websiteUrl?: string | null;
+  websiteUrl: string | null;
   /**
      * @minimum 0
      * @maximum 5
      */
-  rating: number;
+  rating?: number;
   /** @minimum 0 */
-  reviewCount: number;
+  reviewCount?: number;
   /** @nullable */
   findingType?: string | null;
   reasons?: string[];

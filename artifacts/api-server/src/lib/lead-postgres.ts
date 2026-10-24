@@ -8,6 +8,25 @@ const scopedTables = ["companies", "outreach", "activity", "checks", "searches",
 const schema = process.env.NODE_ENV === "test" && /^lead_test_[a-z0-9_]+$/.test(process.env.LEAD_TEST_SCHEMA ?? "")
   ? process.env.LEAD_TEST_SCHEMA! : "public";
 
+// Additive, idempotent upgrades preserve records in existing deployments.
+export async function ensureOsmSchema() {
+  const client=await pool.connect();
+  try{
+    await client.query("BEGIN");
+    await client.query("SELECT pg_advisory_xact_lock(hashtext('lead-finder-osm-schema'))");
+    await client.query(`ALTER TABLE ${schema}.companies ADD COLUMN IF NOT EXISTS osm_profile_json text NOT NULL DEFAULT '{}'`);
+    await client.query(`ALTER TABLE ${schema}.research_jobs ADD COLUMN IF NOT EXISTS summary_json text NOT NULL DEFAULT '{}'`);
+    await client.query(`CREATE TABLE IF NOT EXISTS ${schema}.osm_cache (query_hash text PRIMARY KEY, fetched_at text NOT NULL, raw_json text NOT NULL)`);
+    const constraints=await client.query("SELECT conname, pg_get_constraintdef(oid) AS definition FROM pg_constraint WHERE conrelid = $1::regclass AND contype = 'c'",[`${schema}.companies`]);
+    const source=constraints.rows.find(r=>r.conname==="company_source");
+    if(source&&!source.definition.includes("openstreetmap")){
+      await client.query(`ALTER TABLE ${schema}.companies DROP CONSTRAINT company_source`);
+      await client.query(`ALTER TABLE ${schema}.companies ADD CONSTRAINT company_source CHECK(source IN ('demo','google_places','manual','openstreetmap'))`);
+    }
+    await client.query("COMMIT");
+  }catch(error){await client.query("ROLLBACK");throw error;}finally{client.release();}
+}
+
 export function withDataMode<T>(demo: boolean, work: () => T): T {
   return context.run({ ...context.getStore(), demo, all: false }, work);
 }
@@ -65,8 +84,8 @@ function sqlForPostgres(input: string) {
   // All application statements use ? only for bind parameters, never SQL literals.
   sql = sql.replace(/\?/g, () => `$${++index}`);
   if (schema !== "public") {
-    sql = sql.replace(/\b(INTO|UPDATE|DELETE FROM)\s+(companies|checks|outreach|activity|searches|settings|app_meta|research_jobs|osm_area_cache|ai_api_usage)\b/gi, `$1 ${schema}.$2`);
-    sql = sql.replace(/\b(FROM|JOIN)\s+(settings|app_meta|osm_area_cache)\b/gi, `$1 ${schema}.$2`);
+    sql = sql.replace(/\b(INTO|UPDATE|DELETE FROM)\s+(companies|checks|outreach|activity|searches|settings|app_meta|research_jobs|osm_area_cache|osm_cache|ai_api_usage)\b/gi, `$1 ${schema}.$2`);
+    sql = sql.replace(/\b(FROM|JOIN)\s+(settings|app_meta|osm_area_cache|osm_cache)\b/gi, `$1 ${schema}.$2`);
     if (scope.all) sql = sql.replace(/\b(FROM|JOIN)\s+(companies|checks|outreach|activity|searches|research_jobs|ai_api_usage)\b/gi, `$1 ${schema}.$2`);
   }
   return sql;

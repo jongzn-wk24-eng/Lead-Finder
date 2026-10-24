@@ -5,12 +5,14 @@
  * KL Lead Finder API
  * OpenAPI spec version: 0.1.0
  */
+import type { ImportSummary } from './importSummary';
 import type { ResearchJobKind } from './researchJobKind';
 import type { ResearchJobStatus } from './researchJobStatus';
 
 export interface ResearchJob {
   id: string;
   kind: ResearchJobKind;
+  summary?: ImportSummary;
   status: ResearchJobStatus;
   phase: string;
   total: number;

@@ -37,6 +37,8 @@ import type {
   LoadDemoData200,
   MessageDraft,
   OkResult,
+  PasteInput,
+  PasteResult,
   ReplyInput,
   ResearchJob,
   RunOneCallTest200,
@@ -75,6 +77,156 @@ const withQueryKey = <T extends object, K>(query: T, queryKey: K): T & { queryKe
   }
   return result;
 };
+
+export const getPasteCompaniesUrl = () => {
+
+
+
+
+  return `/api/companies/paste`
+}
+
+export const pasteCompanies = async (pasteInput: PasteInput, options?: Parameters<typeof customFetch>[1]): Promise<PasteResult> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<PasteResult>(getPasteCompaniesUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(pasteInput)
+  }
+);}
+
+
+
+
+
+export const getPasteCompaniesMutationKey = () => ['pasteCompanies'] as const;
+
+export const getPasteCompaniesMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof pasteCompanies>>, TError,PasteCompaniesMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof pasteCompanies>>, TError,PasteCompaniesMutationVariables, TContext> => {
+
+const mutationKey = getPasteCompaniesMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof pasteCompanies>>, PasteCompaniesMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  pasteCompanies(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PasteCompaniesMutationResult = NonNullable<Awaited<ReturnType<typeof pasteCompanies>>>
+    export type PasteCompaniesMutationBody = BodyType<PasteInput>
+    export type PasteCompaniesMutationError = ErrorType<unknown>
+    export type PasteCompaniesMutationVariables = {data: BodyType<PasteInput>}
+
+    export const usePasteCompanies = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof pasteCompanies>>, TError,PasteCompaniesMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof pasteCompanies>>,
+        TError,
+        PasteCompaniesMutationVariables,
+        TContext
+      > => {
+      return useMutation(getPasteCompaniesMutationOptions(options));
+    }
+
+export const getRefreshOsmCompanyUrl = (companyId: number,) => {
+
+
+
+
+  return `/api/companies/${companyId}/refresh-osm`
+}
+
+export const refreshOsmCompany = async (companyId: number, options?: Parameters<typeof customFetch>[1]): Promise<ResearchJob> => {
+
+  return customFetch<ResearchJob>(getRefreshOsmCompanyUrl(companyId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getRefreshOsmCompanyMutationKey = () => ['refreshOsmCompany'] as const;
+
+export const getRefreshOsmCompanyMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof refreshOsmCompany>>, TError,RefreshOsmCompanyMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof refreshOsmCompany>>, TError,RefreshOsmCompanyMutationVariables, TContext> => {
+
+const mutationKey = getRefreshOsmCompanyMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof refreshOsmCompany>>, RefreshOsmCompanyMutationVariables> = (props) => {
+          const {companyId} = props ?? {};
+
+          return  refreshOsmCompany(companyId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RefreshOsmCompanyMutationResult = NonNullable<Awaited<ReturnType<typeof refreshOsmCompany>>>
+
+    export type RefreshOsmCompanyMutationError = ErrorType<unknown>
+    export type RefreshOsmCompanyMutationVariables = {companyId: number}
+
+    export const useRefreshOsmCompany = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof refreshOsmCompany>>, TError,RefreshOsmCompanyMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof refreshOsmCompany>>,
+        TError,
+        RefreshOsmCompanyMutationVariables,
+        TContext
+      > => {
+      return useMutation(getRefreshOsmCompanyMutationOptions(options));
+    }
 
 export const getHealthCheckUrl = () => {
 
@@ -479,7 +631,7 @@ export const getEstimateSearchUrl = () => {
 }
 
 /**
- * @summary Estimate Google Places Text Search requests for selected areas and categories
+ * @summary Estimate bounded Overpass requests for selected KL categories
  */
 export const estimateSearch = async (searchInput: SearchInput, options?: Parameters<typeof customFetch>[1]): Promise<SearchEstimate> => {
 
@@ -545,7 +697,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type EstimateSearchMutationVariables = {data: BodyType<SearchInput>}
 
     /**
- * @summary Estimate Google Places Text Search requests for selected areas and categories
+ * @summary Estimate bounded Overpass requests for selected KL categories
  */
 export const useEstimateSearch = <TError = ErrorType<unknown>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof estimateSearch>>, TError,EstimateSearchMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
@@ -567,7 +719,7 @@ export const getStartSearchJobUrl = () => {
 }
 
 /**
- * @summary Start a Google Places search and website-check job
+ * @summary Start an OpenStreetMap import and website-check job
  */
 export const startSearchJob = async (searchInput: SearchInput, options?: Parameters<typeof customFetch>[1]): Promise<ResearchJob> => {
 
@@ -633,7 +785,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type StartSearchJobMutationVariables = {data: BodyType<SearchInput>}
 
     /**
- * @summary Start a Google Places search and website-check job
+ * @summary Start an OpenStreetMap import and website-check job
  */
 export const useStartSearchJob = <TError = ErrorType<unknown>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof startSearchJob>>, TError,StartSearchJobMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}

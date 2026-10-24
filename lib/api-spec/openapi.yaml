@@ -21,6 +21,36 @@ tags:
   - name: settings
     description: App settings
 paths:
+  /companies/paste:
+    post:
+      operationId: pasteCompanies
+      tags: [leads]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PasteInput" }
+      responses:
+        "201":
+          description: Imported rows and per-line errors
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PasteResult" }
+  /companies/{companyId}/refresh-osm:
+    parameters:
+      - in: path
+        name: companyId
+        required: true
+        schema: { type: integer }
+    post:
+      operationId: refreshOsmCompany
+      tags: [search]
+      responses:
+        "202":
+          description: Category refresh queued; manual edits are preserved
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ResearchJob" }
   /healthz:
     get:
       operationId: healthCheck
@@ -96,7 +126,7 @@ paths:
     post:
       operationId: estimateSearch
       tags: [search]
-      summary: Estimate Google Places Text Search requests for selected areas and categories
+      summary: Estimate bounded Overpass requests for selected KL categories
       requestBody:
         required: true
         content:
@@ -112,7 +142,7 @@ paths:
     post:
       operationId: startSearchJob
       tags: [search]
-      summary: Start a Google Places search and website-check job
+      summary: Start an OpenStreetMap import and website-check job
       requestBody:
         required: true
         content:
@@ -219,6 +249,9 @@ paths:
       parameters:
         - in: query
           name: search
+          schema: { type: string }
+        - in: query
+          name: keyword
           schema: { type: string }
         - in: query
           name: status
@@ -573,6 +606,18 @@ components:
     Company:
       type: object
       properties:
+        nameEn: { type: ["string", "null"] }
+        websiteType: { type: string }
+        socialUrl: { type: ["string", "null"] }
+        phoneIsMobile: { type: boolean }
+        whatsappDerived: { type: boolean }
+        phones: { type: array, items: { type: string } }
+        manualValue: { type: integer }
+        websiteConfirmedNone: { type: boolean }
+        branchCount: { type: integer }
+        isChain: { type: boolean }
+        duplicateWarning: { type: ["string", "null"] }
+        osmStale: { type: boolean }
         id: { type: integer }
         placeId: { type: string }
         name: { type: string }
@@ -582,7 +627,7 @@ components:
         phone: { type: ["string", "null"] }
         websiteUrl: { type: ["string", "null"] }
         mapsUrl: { type: ["string", "null"] }
-        source: { type: string, enum: [demo, google_places, manual] }
+        source: { type: string, enum: [demo, google_places, manual, openstreetmap] }
         automatedCheckStatus: { type: string }
         automatedCheckedAt: { type: ["string", "null"] }
         aiStatus: { type: string }
@@ -669,6 +714,7 @@ components:
     SearchInput:
       type: object
       properties:
+        refresh: { type: boolean, default: false }
         areas:
           type: array
           items: { type: string, minLength: 1, maxLength: 100 }
@@ -683,6 +729,8 @@ components:
     SearchEstimate:
       type: object
       properties:
+        cachedCategories: { type: array, items: { type: string } }
+        queriesPlanned: { type: integer }
         areaCount: { type: integer }
         keywordCount: { type: integer }
         pairCount: { type: integer }
@@ -695,7 +743,8 @@ components:
       type: object
       properties:
         id: { type: string }
-        kind: { type: string, enum: [search, recheck, google_refresh] }
+        kind: { type: string, enum: [search, recheck, google_refresh, osm_import, osm_refresh] }
+        summary: { $ref: "#/components/schemas/ImportSummary" }
         status: { type: string, enum: [queued, running, completed, cancelled, failed] }
         phase: { type: string }
         total: { type: integer }
@@ -799,6 +848,7 @@ components:
         googleSearchRequestsCount: { type: integer }
         googleDetailsRequestsCount: { type: integer }
         aiCallsToday: { type: integer }
+        importsThisWeek: { type: integer }
         replyRatesByFindingType:
           type: array
           items:
@@ -846,10 +896,15 @@ components:
         reasons:
           type: array
           items: { type: string }
-      required: [name, area, keyword, address, rating, reviewCount]
+      required: [name, websiteUrl]
     CompanyUpdate:
       type: object
       properties:
+        phone: { type: ["string", "null"] }
+        websiteUrl: { type: ["string", "null"] }
+        name: { type: string, minLength: 2 }
+        manualValue: { type: integer, minimum: 0, maximum: 3 }
+        websiteConfirmedNone: { type: boolean }
         firstName: { type: string }
         email: { type: ["string", "null"] }
         whatsapp: { type: ["string", "null"] }
@@ -880,6 +935,13 @@ components:
     Settings:
       type: object
       properties:
+        osmContact: { type: string }
+        overpassEndpoint: { type: string }
+        minValue: { type: integer }
+        minProblem: { type: integer }
+        chainThreshold: { type: integer }
+        categories: { type: array, items: { $ref: "#/components/schemas/OsmCategory" } }
+        areaCentres: { type: array, items: { $ref: "#/components/schemas/AreaCentre" } }
         demoMode: { type: boolean }
         areas: { type: array, items: { type: string } }
         keywords: { type: array, items: { type: string } }
@@ -908,4 +970,53 @@ components:
         myWhatsapp: { type: string }
         portfolioUrl: { type: string }
         aiInstruction: { type: string }
+        osmContact: { type: string }
+        overpassEndpoint: { type: string }
+        minValue: { type: integer, minimum: 0, maximum: 30 }
+        minProblem: { type: integer, minimum: 0, maximum: 70 }
+        chainThreshold: { type: integer, minimum: 2 }
+        categories: { type: array, minItems: 1, items: { $ref: "#/components/schemas/OsmCategory" } }
+        areaCentres: { type: array, minItems: 1, items: { $ref: "#/components/schemas/AreaCentre" } }
+    OsmCategory:
+      type: object
+      properties:
+        label: { type: string, minLength: 1 }
+        filters: { type: array, minItems: 1, items: { type: string, pattern: "^[a-zA-Z_:]+=[a-zA-Z0-9_:.-]+$" } }
+        highValue: { type: boolean }
+        enabled: { type: boolean }
+      required: [label, filters, highValue, enabled]
+    AreaCentre:
+      type: object
+      properties:
+        label: { type: string }
+        lat: { type: number, minimum: -90, maximum: 90 }
+        lng: { type: number, minimum: -180, maximum: 180 }
+        premium: { type: boolean }
+      required: [label, lat, lng, premium]
+    ImportSummary:
+      type: object
+      properties:
+        found: { type: integer }
+        newCount: { type: integer }
+        duplicates: { type: integer }
+        filtered: { type: integer }
+        withWebsite: { type: integer }
+        withPhone: { type: integer }
+        withEmail: { type: integer }
+        cached: { type: boolean }
+        filterReasons: { type: object, additionalProperties: { type: integer } }
+        warnings: { type: array, items: { type: string } }
+      required: [found, newCount, duplicates, filtered, withWebsite, withPhone, withEmail, cached, filterReasons, warnings]
+    PasteInput:
+      type: object
+      properties:
+        text: { type: string, minLength: 1, maxLength: 20000 }
+      required: [text]
+    PasteResult:
+      type: object
+      properties:
+        created: { type: integer }
+        errors: { type: array, items: { type: string } }
+        jobIds: { type: array, items: { type: string } }
+      required: [created, errors, jobIds]
 

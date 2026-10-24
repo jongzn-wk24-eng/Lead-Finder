@@ -7,6 +7,18 @@
  */
 
 export interface CompanyUpdate {
+  /** @nullable */
+  phone?: string | null;
+  /** @nullable */
+  websiteUrl?: string | null;
+  /** @minLength 2 */
+  name?: string;
+  /**
+     * @minimum 0
+     * @maximum 3
+     */
+  manualValue?: number;
+  websiteConfirmedNone?: boolean;
   firstName?: string;
   /** @nullable */
   email?: string | null;

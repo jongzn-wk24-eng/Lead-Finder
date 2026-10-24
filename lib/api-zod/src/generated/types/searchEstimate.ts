@@ -7,6 +7,8 @@
  */
 
 export interface SearchEstimate {
+  cachedCategories?: string[];
+  queriesPlanned?: number;
   areaCount: number;
   keywordCount: number;
   pairCount: number;

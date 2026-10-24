@@ -7,6 +7,7 @@
  */
 
 export * from './activityItem';
+export * from './areaCentre';
 export * from './authInput';
 export * from './authSession';
 export * from './channelInput';
@@ -32,13 +33,18 @@ export * from './exportLeadDataCsvParams';
 export * from './exportLeadDataCsvType';
 export * from './followup';
 export * from './healthStatus';
+export * from './importSummary';
+export * from './importSummaryFilterReasons';
 export * from './listActivityParams';
 export * from './listCompaniesParams';
 export * from './loadDemoData200';
 export * from './messageDraft';
 export * from './messageDraftDraftMode';
 export * from './okResult';
+export * from './osmCategory';
 export * from './outreach';
+export * from './pasteInput';
+export * from './pasteResult';
 export * from './replyInput';
 export * from './researchJob';
 export * from './researchJobKind';

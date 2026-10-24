@@ -13,4 +13,6 @@ export const ResearchJobKind = {
   search: 'search',
   recheck: 'recheck',
   google_refresh: 'google_refresh',
+  osm_import: 'osm_import',
+  osm_refresh: 'osm_refresh',
 } as const;

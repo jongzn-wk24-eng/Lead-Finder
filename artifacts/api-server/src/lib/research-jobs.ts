@@ -10,7 +10,7 @@ import {
 import { checkCompanyWebsite } from "./website-checks";
 import { logger } from "./logger";
 
-export type ResearchJobKind = "search" | "recheck" | "google_refresh";
+export type ResearchJobKind = "search" | "recheck" | "google_refresh" | "osm_import" | "osm_refresh";
 export type ResearchJobStatus = "queued" | "running" | "completed" | "cancelled" | "failed";
 export type ResearchJob = {
   id: string;
@@ -29,6 +29,7 @@ export type ResearchJob = {
   error: string | null;
   createdAt: string;
   updatedAt: string;
+  summary?: import("./osm").ImportSummary;
 };
 
 type JobRow = Record<string, unknown>;
@@ -43,6 +44,7 @@ type SearchInput = { areas: string[]; keywords: string[] };
 
 function asJob(row: JobRow): ResearchJob {
   return {
+    summary: row.summary_json && row.summary_json!=="{}" ? JSON.parse(String(row.summary_json)) : undefined,
     id: String(row.id),
     kind: String(row.kind) as ResearchJobKind,
     status: String(row.status) as ResearchJobStatus,
@@ -67,7 +69,7 @@ export async function getResearchJob(id: string) {
   return row ? asJob(row) : null;
 }
 
-async function createResearchJob(kind: ResearchJobKind, total: number, requestsEstimated: number, input: unknown) {
+export async function createResearchJob(kind: ResearchJobKind, total: number, requestsEstimated: number, input: unknown) {
   const id = randomUUID();
   const now = new Date().toISOString();
   (await leadDb.prepare(`
@@ -94,11 +96,12 @@ const jobColumnMap: Record<string, string> = {
   error: "error",
 };
 
-async function updateResearchJob(id: string, patch: Partial<ResearchJob>) {
+export async function updateResearchJob(id: string, patch: Partial<ResearchJob>) {
+  if(patch.summary)await leadDb.prepare("UPDATE research_jobs SET summary_json = ? WHERE id = ?").run(JSON.stringify(patch.summary),id);
   const entries = Object.entries(patch).filter(([key]) => key in jobColumnMap);
   if (entries.length) {
     const assignments = entries.map(([key]) => `${jobColumnMap[key]} = ?`).join(", ");
-    const values = entries.map(([, value]) => value ?? null);
+    const values = entries.map(([, value]) => value ?? null) as Array<string|number|null>;
     (await leadDb.prepare(`UPDATE research_jobs SET ${assignments}, updated_at = ? WHERE id = ?`).run(
       ...values,
       new Date().toISOString(),
@@ -125,12 +128,12 @@ export async function cancelResearchJob(id: string) {
   return (await getResearchJob(id));
 }
 
-async function cancellationRequested(id: string) {
+export async function cancellationRequested(id: string) {
   const row = (await leadDb.prepare("SELECT cancel_requested FROM research_jobs WHERE id = ?").get(id)) as { cancel_requested: number } | undefined;
   return !row || Number(row.cancel_requested) === 1;
 }
 
-async function incrementRequestCount(id: string) {
+export async function incrementRequestCount(id: string) {
   (await leadDb.prepare("UPDATE research_jobs SET requests_made = requests_made + 1, updated_at = ? WHERE id = ?")
     .run(new Date().toISOString(), id));
 }
@@ -138,7 +141,7 @@ async function incrementRequestCount(id: string) {
 let activeWebsiteChecks = 0;
 const websiteCheckWaiters: Array<() => void> = [];
 
-async function withWebsiteCheckLimit<T>(work: () => Promise<T>): Promise<T> {
+export async function withWebsiteCheckLimit<T>(work: () => Promise<T>): Promise<T> {
   if (activeWebsiteChecks >= 2) await new Promise<void>((resolve) => websiteCheckWaiters.push(resolve));
   activeWebsiteChecks += 1;
   try {

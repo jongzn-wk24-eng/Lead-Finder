@@ -13,6 +13,7 @@ import {
   UpdateSettingsBody,
   UpdateCompanyBody,
   StartSearchJobBody,
+  PasteCompaniesBody,
 } from "@workspace/api-zod";
 import {
   addActivity,
@@ -51,6 +52,8 @@ import { getPrivateScreenshot } from "../lib/screenshot-storage";
 import { inDemoMode, withDataMode } from "../lib/lead-postgres";
 import { loadDemoData, recordGooglePlacesRequest, upsertGooglePlace } from "../lib/lead-db";
 import { searchGooglePlacesText } from "../lib/google-places";
+import { estimateOsmSearch,startOsmSearch,startOsmRecheck } from "../lib/osm-jobs";
+import { normalizeWebsite } from "../lib/osm/normalize";
 
 const router: IRouter = Router();
 const parseCompanyId = (value: unknown) => {
@@ -90,6 +93,16 @@ router.use(async (_req, res, next) => {
   const settings = await getSettings();
   withDataMode(settings.demoMode === true, next);
 });
+router.use((req,res,next)=>{
+  const path=req.path.toLowerCase().replace(/\/+$/,"");
+  if(path==="/search/test" || path.endsWith("/refresh-google")){
+    res.status(410).json({error:"Google Places is disabled. Import from OpenStreetMap instead."});return;
+  }
+  if(req.method==="POST"&&inDemoMode()&&(["/companies","/companies/paste"].includes(path)||path.endsWith("/refresh-osm"))){
+    res.status(409).json({error:"Switch Demo mode OFF before adding real companies or running external research."});return;
+  }
+  next();
+});
 
 router.use("/companies/:companyId", async (req, res, next) => {
   const id = parseCompanyId(req.params.companyId);
@@ -101,7 +114,7 @@ router.use("/companies/:companyId", async (req, res, next) => {
 });
 router.use(["/search/jobs", "/search/test", "/companies/:companyId/recheck", "/companies/:companyId/refresh-google"], (req, res, next) => {
   if (req.method === "POST" && inDemoMode()) {
-    res.status(409).json({ error: "Switch Demo mode OFF before running external research. Demo mode never calls Google or Gemini." });
+    res.status(409).json({ error: "Switch Demo mode OFF before running external research. Demo mode never calls Overpass or Gemini." });
     return;
   }
   next();
@@ -111,46 +124,20 @@ router.post("/demo-data", async (_req, res) => {
 });
 // A deliberate one-call smoke test: transient Google fields in this response only.
 // It shares production dedupe/accounting, but never starts checks or live enrichment.
-router.post("/search/test", async (req, res) => {
-  const body = EstimateSearchBody.safeParse(req.body);
-  if (!body.success || body.data.areas.length !== 1 || body.data.keywords.length !== 1) {
-    res.status(400).json({ error: "Choose exactly 1 keyword and 1 area for the one-call test." });
-    return;
-  }
-  const area = body.data.areas[0]!;
-  const keyword = body.data.keywords[0]!;
-  try {
-    const places = await searchGooglePlacesText(keyword, area, () => recordGooglePlacesRequest(keyword, area));
-    const results = [];
-    const seen = new Set<string>();
-    for (const place of places) {
-      if (seen.has(place.id)) continue;
-      seen.add(place.id);
-      const stored = await upsertGooglePlace({ placeId: place.id, area, keyword });
-      results.push({
-        id: stored.id, placeId: place.id, isNew: stored.isNew,
-        name: place.displayName?.text ?? "", address: place.formattedAddress ?? "",
-        phone: place.nationalPhoneNumber ?? null, websiteUrl: place.websiteUri ?? null,
-        mapsUrl: place.googleMapsUri ?? null, rating: place.rating ?? null,
-        reviewCount: place.userRatingCount ?? null, attributions: place.attributions ?? [],
-      });
-    }
-    res.json({ requestsMade: 1, results });
-  } catch (error) {
-    res.status(502).json({ error: error instanceof Error ? error.message : "Google Places search failed." });
-  }
+router.post("/search/test", (_req, res) => {
+  res.status(410).json({error:"Google Places is disabled. Import from OpenStreetMap instead."});
 });
 
-router.post("/search/estimate", (req, res) => {
+router.post("/search/estimate", async (req, res) => {
   const body = EstimateSearchBody.safeParse(req.body);
   if (!body.success) {
     res.status(400).json({ error: "Choose at least one valid area and keyword." });
     return;
   }
   try {
-    res.json(estimateGooglePlacesSearch(body.data));
+    res.json(await estimateOsmSearch(body.data));
   } catch (error) {
-    res.status(400).json({ error: error instanceof Error ? error.message : "Could not estimate Google Places requests." });
+    res.status(400).json({ error: error instanceof Error ? error.message : "Could not estimate Overpass requests." });
   }
 });
 
@@ -161,9 +148,9 @@ router.post("/search/jobs", async (req, res) => {
     return;
   }
   try {
-    res.status(202).json((await startGooglePlacesSearch(body.data)));
+    res.status(202).json(await startOsmSearch(body.data));
   } catch (error) {
-    res.status(400).json({ error: error instanceof Error ? error.message : "Could not start Google Places search." });
+    res.status(400).json({ error: error instanceof Error ? error.message : "Could not start OpenStreetMap import." });
   }
 });
 
@@ -204,35 +191,48 @@ router.get("/dashboard", async (_req, res) => {
 });
 
 router.get("/companies", async (req, res): Promise<void> => {
-  const query = ListCompaniesQueryParams.safeParse(req.query);
+  const raw:Record<string,unknown>={...req.query};
+  for(const key of ["showAll","hasWebsite","hasContact"]){
+    if(raw[key]===undefined)continue;
+    if(raw[key]==="true"||raw[key]==="1")raw[key]=true;
+    else if(raw[key]==="false"||raw[key]==="0")raw[key]=false;
+    else {res.status(400).json({error:`Invalid ${key} filter.`});return;}
+  }
+  const query = ListCompaniesQueryParams.safeParse(raw);
   if (!query.success) {
     res.status(400).json({ error: "Invalid lead filters." });
     return;
   }
   const filter = query.data;
-  const stored = await listCompanies(filter);
-  const live = req.query.live === "1" ? await withLiveGoogleList(stored) : stored.map(company => ({
-    ...company, googleDataWarning: company.source === "google_places" ? "Live details have not been requested. Open the company and choose Load live Google data (1 Place Details call)." : null,
-    googleAttributions: [],
-  }));
-  const results = live.filter((company) => {
-    if (company.googleDataWarning) return true;
-    if (!filter.showAll && (company.valueScore < 15 || company.problemScore < 25)) return false;
-    if (filter.search && !`${company.name} ${company.area} ${company.keyword}`.toLowerCase().includes(filter.search.toLowerCase().trim())) return false;
-    if (filter.hasWebsite != null && Boolean(company.websiteUrl) !== filter.hasWebsite) return false;
-    if (filter.hasContact != null && Boolean(company.phone || company.email || company.whatsapp) !== filter.hasContact) return false;
-    return true;
-  }).sort((a, b) => b.opportunityScore - a.opportunityScore || a.name.localeCompare(b.name));
-  res.json(results);
+  res.json(await listCompanies({...filter,keyword:typeof req.query.keyword==="string"?req.query.keyword:undefined}));
+});
+
+router.post("/companies/paste",async(req,res)=>{
+  const body=PasteCompaniesBody.safeParse(req.body);
+  if(!body.success){res.status(400).json({error:"Paste one company per line: name, website, area."});return;}
+  const lines=body.data.text.split(/\r?\n/).filter(v=>v.trim());
+  if(lines.length>100){res.status(400).json({error:"Paste at most 100 companies at a time."});return;}
+  const errors:string[]=[],jobIds:string[]=[];let created=0;
+  for(const [i,line] of lines.entries()){
+    const parts=line.match(/("(?:[^"]|"")*"|[^,]*)(,|$)/g)?.filter(Boolean).map(v=>v.replace(/,$/,"").trim().replace(/^"|"$/g,"").replace(/""/g,'"'))??[];
+    const [name,websiteUrl,area]=parts;
+    if(!name||!normalizeWebsite(websiteUrl).websiteUrl){errors.push(`Line ${i+1}: name and a valid website are required.`);continue;}
+    const company=await createCompany({name,websiteUrl,area:area||"Other KL"});
+    if(company){created++;jobIds.push((await startOsmRecheck(company.id)).id);}
+  }
+  res.status(201).json({created,errors,jobIds});
 });
 
 router.post("/companies", async (req, res) => {
   const body = CreateCompanyBody.safeParse(req.body);
   if (!body.success) {
-    res.status(400).json({ error: "Company name, area, address, rating, and review count are required." });
+    res.status(400).json({ error: "Company name and website are required." });
     return;
   }
+  const web=normalizeWebsite(body.data.websiteUrl);
+  if(!web.websiteUrl&&!web.socialUrl){res.status(400).json({error:"Enter a valid http or https website."});return;}
   const company = (await createCompany(body.data));
+  if(company)await startOsmRecheck(company.id);
   res.status(201).json(company);
 });
 
@@ -260,11 +260,7 @@ router.get("/companies/:companyId", async (req, res): Promise<void> => {
     res.status(404).json({ error: "Company not found." });
     return;
   }
-  const live = req.query.live === "1" ? await withLiveGoogleData(company) : {
-    ...company, googleDataWarning: company.source === "google_places" ? "Live details have not been requested. Choose Load live Google data (1 Place Details call)." : null,
-    googleAttributions: [],
-  };
-  res.json({ ...live, activity: company.activity.map((item) => ({ ...item, companyName: live.name })) });
+  res.json(company);
 });
 
 router.get("/companies/:companyId/screenshots/:variant", async (req, res): Promise<void> => {
@@ -307,7 +303,15 @@ router.post("/companies/:companyId/recheck", async (req, res) => {
     res.status(404).json({ error: "Company not found." });
     return;
   }
-  res.status(202).json((await startCompanyRecheck(id)));
+  try{res.status(202).json(await startOsmRecheck(id));}
+  catch(error){res.status(409).json({error:error instanceof Error?error.message:"Could not re-check."});}
+});
+
+router.post("/companies/:companyId/refresh-osm",async(req,res)=>{
+  const company=await getCompany(Number(req.params.companyId));
+  if(!company||company.source!=="openstreetmap"){res.status(409).json({error:"Only OpenStreetMap records can be refreshed."});return;}
+  try{res.status(202).json(await startOsmSearch({keywords:[company.keyword],refresh:true},"osm_refresh"));}
+  catch(error){res.status(400).json({error:error instanceof Error?error.message:"Could not refresh."});}
 });
 
 router.post("/companies/:companyId/refresh-google", async (req, res) => {
@@ -340,12 +344,16 @@ router.patch("/companies/:companyId", async (req, res) => {
     res.status(400).json({ error: "Invalid company update." });
     return;
   }
+  if(body.data.websiteUrl&&!normalizeWebsite(body.data.websiteUrl).websiteUrl&&!normalizeWebsite(body.data.websiteUrl).socialUrl){
+    res.status(400).json({error:"Enter a valid http or https website."});return;
+  }
   const company = (await updateCompany(id, body.data));
   if (!company) {
     res.status(404).json({ error: "Company not found." });
     return;
   }
   (await addActivity(id, "note_added", null, null, "Company details updated."));
+  if(!company.isDoNotContact&&("websiteUrl" in body.data||"websiteConfirmedNone" in body.data))await startOsmRecheck(id);
   res.json(company);
 });
 
@@ -393,12 +401,7 @@ router.post("/companies/:companyId/draft", async (req, res): Promise<void> => {
     res.status(404).json({ error: "Company not found." });
     return;
   }
-  const live = await withLiveGoogleData(company);
-  if (live.googleDataWarning) {
-    res.status(503).json({ error: "Live Google details are unavailable. Try again before drafting." });
-    return;
-  }
-  const result = await generateDraft(id, company.source === "google_places" ? live.name : undefined);
+  const result = await generateDraft(id);
   if ("error" in result) {
     res.status(result.error === "Company not found." ? 404 : 409).json({ error: result.error });
     return;
@@ -487,7 +490,8 @@ router.patch("/settings", async (req, res) => {
     res.status(400).json({ error: "Invalid settings." });
     return;
   }
-  res.json((await updateSettings(body.data)));
+  try{res.json(await updateSettings(body.data));}
+  catch(error){res.status(400).json({error:error instanceof Error?error.message:"Could not save settings."});}
 });
 
 export default router;

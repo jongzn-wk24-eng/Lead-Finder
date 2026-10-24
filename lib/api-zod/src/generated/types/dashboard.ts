@@ -23,6 +23,7 @@ export interface Dashboard {
   googleSearchRequestsCount?: number;
   googleDetailsRequestsCount?: number;
   aiCallsToday: number;
+  importsThisWeek?: number;
   replyRatesByFindingType: DashboardReplyRatesByFindingTypeItem[];
   replyRatesByChannel: DashboardReplyRatesByChannelItem[];
 }

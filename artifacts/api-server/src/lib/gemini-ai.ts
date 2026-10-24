@@ -117,15 +117,15 @@ export async function scoreWebsiteDesign(desktopPath: string, mobilePath: string
     desktopFile.download(),
     mobileFile.download(),
   ]);
-  const prompt = `Assess the visual design opportunity of this local business website from the desktop and mobile screenshots. Return JSON only: {"score": integer 0-100, "ctaObvious": boolean, "reasons": string[]}. Score 0 means the visible design is clear and effective; 100 means severe, concrete design problems that a web designer could improve. Judge legibility, hierarchy, mobile fit, trust cues, and whether the main contact/action is obvious in the first viewport. Do not infer facts outside the screenshots. Reasons must be specific and concise, at most 3. ctaObvious is true only if a visitor can readily identify the main action in the first viewport.`;
+  const prompt = `Assess this business website from its desktop and mobile screenshots. Return JSON only: {"score": integer 0-10, "ctaObvious": boolean, "reasons": string[]}. Score 10 is excellent and 0 is very poor design. Give a one-sentence explanation and at most 2 concrete visible issues, as at most 3 concise strings. Judge legibility, hierarchy, mobile fit and whether a call, WhatsApp or booking action is obvious in the FIRST screen. Do not infer traffic, business results or other facts outside the screenshots.`;
   const result = await generateJson([
     { text: prompt },
     { inlineData: { mimeType: "image/png", data: desktopBytes.toString("base64") } },
     { inlineData: { mimeType: "image/png", data: mobileBytes.toString("base64") } },
   ], onRequest);
   const score = Number(result.score);
-  if (!Number.isFinite(score) || !Number.isInteger(score) || score < 0 || score > 100) {
-    throw new GeminiApiError("Gemini returned a design score outside the expected 0-100 range.");
+  if (!Number.isFinite(score) || !Number.isInteger(score) || score < 0 || score > 10) {
+    throw new GeminiApiError("Gemini returned a design score outside the expected 0-10 range.");
   }
   if (typeof result.ctaObvious !== "boolean") {
     throw new GeminiApiError("Gemini did not return a valid CTA visibility result.");
@@ -166,7 +166,7 @@ Sender: ${input.senderName}, ${input.senderTitle}
 Portfolio: ${input.portfolioUrl}
 WhatsApp: ${input.whatsappNumber}
 
-Strict rules: both message bodies must contain the company name and include the exact finding sentence above; each body must be under 100 words; do not invent facts, imply a relationship, claim an unperformed call/visit, make guarantees or outcome claims, mention a price or percentage, use buzzwords, or use phrases such as "100%", "guaranteed", "I checked your site on my phone", or "I found you on Google Maps". Return JSON only with string fields subject, emailBody, whatsappBody.`,
+Strict rules: both message bodies must contain the company name and include the exact finding sentence above; email must be under 100 words and WhatsApp at most 40 words. No exclamation marks, ALL CAPS sentences, invented facts, relationships, unperformed phone visits, guarantees, prices, percentages or buzzwords. A tentative "That might be costing you some enquiries" is allowed, but never assert an actual measured business loss. One offer only: a free homepage top-section concept. Return JSON only with string fields subject, emailBody, whatsappBody.`,
   }], onRequest);
   const subject = typeof result.subject === "string" ? result.subject.trim() : "";
   const emailBody = typeof result.emailBody === "string" ? result.emailBody.trim() : "";

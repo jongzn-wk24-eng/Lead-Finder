@@ -9,6 +9,21 @@ import type { CompanyGoogleAttributionsItem } from './companyGoogleAttributionsI
 import type { CompanySource } from './companySource';
 
 export interface Company {
+  /** @nullable */
+  nameEn?: string | null;
+  websiteType?: string;
+  /** @nullable */
+  socialUrl?: string | null;
+  phoneIsMobile?: boolean;
+  whatsappDerived?: boolean;
+  phones?: string[];
+  manualValue?: number;
+  websiteConfirmedNone?: boolean;
+  branchCount?: number;
+  isChain?: boolean;
+  /** @nullable */
+  duplicateWarning?: string | null;
+  osmStale?: boolean;
   id: number;
   placeId: string;
   name: string;
